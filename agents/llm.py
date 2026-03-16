@@ -94,6 +94,43 @@ Decide your next action. Valid actions:
 """
 
 
+async def generate_tick_summary(tick: int, actions: list[dict]) -> str:
+    """Generate a short narrative summary of what happened this tick."""
+    lines = []
+    for a in actions:
+        msg = a.get("message") or a.get("parameters", {}).get("content", "")
+        msg_part = f': "{msg[:80]}"' if msg else ""
+        lines.append(f"  {a['agent_name']}: {a['action']}{msg_part}")
+
+    prompt = (
+        f"Tick {tick} of a life simulation. Here is what each agent did:\n"
+        + "\n".join(lines)
+        + "\n\nWrite a single short sentence (max 25 words) summarising the social mood and key moment. "
+        "Be vivid and observational, like a narrator. No bullet points, no labels."
+    )
+
+    cmd = [
+        "claude", "-p", prompt,
+        "--output-format", "text",
+        "--no-session-persistence",
+    ]
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return stdout.decode().strip()
+    except Exception as exc:
+        logger.warning("Tick summary failed: %s", exc)
+    return ""
+
+
 async def call_llm(ctx: AgentContext) -> tuple[AgentAction, str | None]:
     """Call Claude via the claude CLI. Returns (action, error_message).
     error_message is None on success, or a string describing the failure."""

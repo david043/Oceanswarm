@@ -37,4 +37,8 @@ def format_tick_summary(summary: dict) -> str:
 
         lines.append(line)
 
+    narrative = summary.get("narrative", "").strip()
+    if narrative:
+        lines.append(f"  ↳ {narrative}")
+
     return "\n".join(lines)

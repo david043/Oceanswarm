@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.actions import apply_action
-from agents.llm import call_llm
+from agents.llm import call_llm, generate_tick_summary
 from agents.memory import add_memory
 from agents.schemas import AgentContext, NearbyAgent
 from config import settings
@@ -84,7 +84,8 @@ class SimulationEngine:
 
                 await db.commit()
 
-        summary = {"tick": tick_number, "agents_processed": len(results), "actions": results}
+        narrative = await generate_tick_summary(tick_number, results)
+        summary = {"tick": tick_number, "agents_processed": len(results), "actions": results, "narrative": narrative}
         await self._broadcast(summary)
         logger.info("Tick %d complete — %d agents processed", tick_number, len(results))
         return summary
