@@ -39,6 +39,20 @@ Respond ONLY with valid JSON matching the provided schema.
 """
 
 
+def _available_directions(x: int, y: int) -> list[str]:
+    from config import settings
+    dirs = []
+    if x > 0:
+        dirs.append("west")
+    if x < settings.world_width - 1:
+        dirs.append("east")
+    if y > 0:
+        dirs.append("north")
+    if y < settings.world_height - 1:
+        dirs.append("south")
+    return dirs
+
+
 def _build_user_prompt(ctx: AgentContext) -> str:
     nearby = "\n".join(
         f"  - {a.name} (id: {a.id}, distance: {a.distance:.1f}"
@@ -49,6 +63,7 @@ def _build_user_prompt(ctx: AgentContext) -> str:
 
     events = "\n".join(f"  - {e}" for e in ctx.world_events) or "  (none)"
     memories = "\n".join(f"  - {m}" for m in ctx.memory) or "  (none)"
+    dirs = "|".join(_available_directions(ctx.position["x"], ctx.position["y"]))
 
     return f"""\
 You are {ctx.name}, a {ctx.age}-year-old {ctx.gender}.
@@ -71,7 +86,7 @@ Nearby agents:
 {nearby}
 
 Decide your next action. Valid actions:
-  move        -> parameters: {{"direction": "north|south|east|west"}}
+  move        -> parameters: {{"direction": "{dirs}"}}  (available from your position)
   communicate -> parameters: {{"target_id": "<id>", "content": "<text>"}}
   interact    -> parameters: {{"target_id": "<id>", "type": "trade|help|fight"}}
   gather      -> parameters: {{"resource": "food|water|tools"}}

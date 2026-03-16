@@ -149,6 +149,9 @@ class SimulationEngine:
         return {
             "agent_id": agent["id"],
             "agent_name": agent["name"],
+            "x": updated["x"],
+            "y": updated["y"],
+            "energy": updated["energy"],
             "action": action_result.action,
             "parameters": action_result.parameters,
             "message": action_result.message,

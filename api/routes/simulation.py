@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from agents.schemas import AgentContext
 from db.database import get_db
 from db.models import SimulationStateModel, TickLogModel
 from simulation.engine import engine
+from simulation.formatting import format_tick_summary
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
@@ -31,11 +33,11 @@ async def get_status(db: AsyncSession = Depends(get_db)):
     return state
 
 
-@router.post("/tick")
+@router.post("/tick", response_class=PlainTextResponse)
 async def manual_tick():
     """Trigger a single tick immediately (dev/testing)."""
     summary = await engine.manual_tick()
-    return summary
+    return format_tick_summary(summary)
 
 
 @router.post("/start")

@@ -1,9 +1,10 @@
 """WebSocket endpoint: streams tick summaries to connected clients."""
 import asyncio
-import json
 import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
+
+from simulation.formatting import format_tick_summary
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class ConnectionManager:
         logger.info("WebSocket client disconnected (%d remaining)", len(self._connections))
 
     async def broadcast(self, data: dict) -> None:
-        message = json.dumps(data)
+        message = format_tick_summary(data)
         async with self._lock:
             targets = list(self._connections)
         dead = []
