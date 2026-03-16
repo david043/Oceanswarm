@@ -9,6 +9,7 @@ description = "A live, persistent AI agent ecosystem"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111.0",
+    "aiofiles>=23.0.0",
     "uvicorn[standard]>=0.29.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "aiosqlite>=0.20.0",

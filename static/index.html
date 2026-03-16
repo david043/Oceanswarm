@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OceanSwarm</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --panel:    #161b27;
+      --border:   #252d40;
+      --accent:   #6366f1;
+      --accent2:  #818cf8;
+      --text:     #e2e8f0;
+      --dim:      #64748b;
+      --green:    #4ade80;
+      --yellow:   #facc15;
+      --red:      #f87171;
+      --dead:     #374151;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--accent2);
+      letter-spacing: 0.05em;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 12px;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--dim);
+    }
+    .dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    #tick-display { color: var(--dim); margin-left: auto; font-size: 12px; }
+
+    /* ── Main layout ── */
+    main {
+      display: grid;
+      grid-template-columns: 220px 1fr 260px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Panels ── */
+    .panel {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 6px;
+    }
+
+    /* ── Buttons ── */
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    .btn-primary   { background: var(--accent); color: #fff; }
+    .btn-secondary { background: #1e293b; color: var(--text); border: 1px solid var(--border); }
+    .btn-danger    { background: #3f1d1d; color: var(--red); border: 1px solid #5c2626; }
+    .btn-sm        { padding: 3px 8px; font-size: 11px; }
+
+    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* ── Forms ── */
+    label {
+      display: block;
+      font-size: 11px;
+      color: var(--dim);
+      margin-bottom: 3px;
+    }
+    input, textarea, select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      padding: 5px 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+      outline: none;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 48px; }
+
+    /* ── Event chips ── */
+    .event-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #1e293b;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2px 8px;
+      font-size: 11px;
+      margin: 2px;
+    }
+    .event-chip .remove {
+      background: none; border: none; color: var(--dim);
+      cursor: pointer; font-size: 13px; padding: 0; line-height: 1;
+    }
+    .event-chip .remove:hover { color: var(--red); }
+
+    .predefined-btn {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 4px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      margin: 2px;
+    }
+    .predefined-btn:hover { border-color: var(--accent); color: var(--accent2); }
+
+    /* ── Canvas area ── */
+    #world-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+    #canvas {
+      display: block;
+      cursor: crosshair;
+      image-rendering: pixelated;
+    }
+    #tooltip {
+      position: absolute;
+      background: rgba(15,17,23,0.95);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.6;
+      pointer-events: none;
+      display: none;
+      z-index: 10;
+      max-width: 160px;
+    }
+    #tooltip .t-name { font-weight: 700; color: var(--accent2); margin-bottom: 2px; }
+
+    /* ── Agent list ── */
+    .agent-item {
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      margin-bottom: 6px;
+      background: var(--bg);
+    }
+    .agent-item.dead { opacity: 0.4; }
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+    .agent-name { font-weight: 600; font-size: 12px; }
+    .agent-pos  { color: var(--dim); font-size: 10px; }
+    .energy-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .energy-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+    .agent-meta {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 4px;
+      color: var(--dim);
+      font-size: 10px;
+    }
+    .badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+    .badge-alive  { background: #14532d; color: var(--green); }
+    .badge-dead   { background: #3f1d1d; color: var(--red); }
+
+    /* ── Activity log ── */
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 10px;
+      line-height: 1.7;
+      color: var(--dim);
+      min-height: 0;
+    }
+    #log .log-entry { border-bottom: 1px solid #1a1d26; padding-bottom: 6px; margin-bottom: 6px; }
+    #log .log-tick  { color: var(--accent2); font-weight: 700; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ── Empty state ── */
+    .empty { color: var(--dim); font-size: 11px; padding: 8px 0; text-align: center; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ OceanSwarm</h1>
+  <div class="status-pill">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Stopped</span>
+  </div>
+  <div class="status-pill">
+    <span style="color:var(--dim)">Tick</span>
+    <span id="tick-num" style="font-weight:700">0</span>
+  </div>
+  <div class="status-pill">
+    <span id="agent-count" style="font-weight:700">0</span>
+    <span style="color:var(--dim)">agents alive</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- LEFT PANEL -->
+  <div class="panel">
+
+    <div>
+      <div class="section-title">Simulation</div>
+      <div class="btn-row" style="margin-bottom:8px">
+        <button class="btn-primary" id="btn-start">▶ Start</button>
+        <button class="btn-secondary" id="btn-stop">■ Stop</button>
+        <button class="btn-secondary" id="btn-tick">⚡ Tick</button>
+      </div>
+      <label>Auto-tick interval (seconds)
+        <input type="number" id="interval-input" value="30" min="5" max="300" />
+      </label>
+    </div>
+
+    <hr style="border-color:var(--border)" />
+
+    <div>
+      <div class="section-title">Spawn Agent</div>
+      <label>Name<input type="text" id="new-name" placeholder="e.g. Mira" /></label>
+      <label>Age<input type="number" id="new-age" value="25" min="1" max="99" /></label>
+      <label>Gender
+        <select id="new-gender">
+          <option>unknown</option>
+          <option>female</option>
+          <option>male</option>
+          <option>non-binary</option>
+        </select>
+      </label>
+      <label>Personality
+        <textarea id="new-personality" placeholder="e.g. Curious and friendly explorer..."></textarea>
+      </label>
+      <button class="btn-primary" id="btn-create" style="width:100%">+ Spawn</button>
+    </div>
+
+    <hr style="border-color:var(--border)" />
+
+    <div>
+      <div class="section-title">World Events</div>
+      <div id="active-events" style="margin-bottom:8px"></div>
+      <div id="predefined-events"></div>
+    </div>
+
+  </div>
+
+  <!-- CENTER: CANVAS -->
+  <div id="world-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="tooltip"></div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel" style="border-left:1px solid var(--border)">
+
+    <div style="flex-shrink:0">
+      <div class="section-title">Agents</div>
+      <div id="agent-list"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;flex:1;min-height:120px">
+      <div class="section-title">Activity Log</div>
+      <div id="log"></div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+  const API = '';  // same origin
+  const WS_URL = `ws://${location.host}/ws`;
+
+  const CELL = 5;
+  const GRID = 100;
+  const CANVAS_SIZE = GRID * CELL;
+
+  let agents = [];
+  let simStatus = { current_tick: 0, is_running: false, tick_interval_seconds: 30 };
+  let predefined = {};
+  let hoveredAgent = null;
+
+  // ── Canvas setup ──────────────────────────────────────────────
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width  = CANVAS_SIZE;
+  canvas.height = CANVAS_SIZE;
+
+  function energyColor(energy, alive) {
+    if (!alive) return '#374151';
+    if (energy > 60) return '#4ade80';
+    if (energy > 30) return '#facc15';
+    return '#f87171';
+  }
+
+  function drawCanvas() {
+    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    // Background
+    ctx.fillStyle = '#0b0e17';
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    // Subtle grid every 10 cells
+    ctx.strokeStyle = '#1a1d26';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= GRID; i += 10) {
+      ctx.beginPath();
+      ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, CANVAS_SIZE);
+      ctx.moveTo(0, i * CELL); ctx.lineTo(CANVAS_SIZE, i * CELL);
+      ctx.stroke();
+    }
+
+    // Interaction radius ring for hovered agent
+    if (hoveredAgent) {
+      const cx = hoveredAgent.x * CELL + CELL / 2;
+      const cy = hoveredAgent.y * CELL + CELL / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5 * CELL, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(99,102,241,0.3)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Agents
+    for (const a of agents) {
+      const px = a.x * CELL + CELL / 2;
+      const py = a.y * CELL + CELL / 2;
+      const r  = a.is_alive ? 3.5 : 2.5;
+      const color = energyColor(a.energy, a.is_alive);
+
+      if (a.is_alive) {
+        // Glow
+        const g = ctx.createRadialGradient(px, py, 0, px, py, r * 2.5);
+        g.addColorStop(0, color + '55');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, r * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      // Highlight hovered
+      if (hoveredAgent && hoveredAgent.id === a.id) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Canvas hover tooltip
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = CANVAS_SIZE / rect.width;
+    const scaleY = CANVAS_SIZE / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top)  * scaleY;
+
+    const gx = Math.floor(mx / CELL);
+    const gy = Math.floor(my / CELL);
+
+    hoveredAgent = agents.find(a =>
+      Math.abs(a.x - gx) <= 1 && Math.abs(a.y - gy) <= 1
+    ) || null;
+
+    const tip = document.getElementById('tooltip');
+    if (hoveredAgent) {
+      const a = hoveredAgent;
+      const mood = a.internal_state?.mood || '—';
+      const goal = a.internal_state?.goal || '—';
+      const inv  = Object.entries(a.inventory || {})
+        .map(([k,v]) => `${k}:${v}`).join(', ') || 'empty';
+      tip.innerHTML = `
+        <div class="t-name">${a.name}</div>
+        <div>⚡ ${a.energy.toFixed(1)} / 100</div>
+        <div>📍 (${a.x}, ${a.y})</div>
+        <div>😐 ${mood}</div>
+        <div>🎯 ${goal}</div>
+        <div>🎒 ${inv}</div>
+        ${!a.is_alive ? '<div style="color:var(--red)">✝ Dead</div>' : ''}
+      `;
+      tip.style.display = 'block';
+      // Position near cursor but inside canvas wrapper
+      const wrapRect = canvas.parentElement.getBoundingClientRect();
+      let tx = e.clientX - wrapRect.left + 14;
+      let ty = e.clientY - wrapRect.top  - 10;
+      if (tx + 160 > wrapRect.width)  tx -= 180;
+      if (ty + 130 > wrapRect.height) ty -= 140;
+      tip.style.left = tx + 'px';
+      tip.style.top  = ty + 'px';
+    } else {
+      tip.style.display = 'none';
+    }
+    drawCanvas();
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    hoveredAgent = null;
+    document.getElementById('tooltip').style.display = 'none';
+    drawCanvas();
+  });
+
+  // ── Fetch helpers ─────────────────────────────────────────────
+  async function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(API + path, opts);
+    if (!res.ok) throw new Error(await res.text());
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  async function fetchAgents() {
+    agents = await api('GET', '/agents/');
+    renderAgentList();
+    drawCanvas();
+    const alive = agents.filter(a => a.is_alive).length;
+    document.getElementById('agent-count').textContent = alive;
+  }
+
+  async function fetchStatus() {
+    simStatus = await api('GET', '/simulation/status');
+    document.getElementById('tick-num').textContent = simStatus.current_tick;
+    document.getElementById('interval-input').value = simStatus.tick_interval_seconds;
+    const running = simStatus.is_running;
+    document.getElementById('status-dot').className  = 'dot' + (running ? ' running' : '');
+    document.getElementById('status-text').textContent = running ? 'Running' : 'Stopped';
+    document.getElementById('btn-start').disabled = running;
+    document.getElementById('btn-stop').disabled  = !running;
+  }
+
+  async function fetchEvents() {
+    const events = await api('GET', '/world/events?active_only=true');
+    renderActiveEvents(events);
+  }
+
+  async function fetchPredefined() {
+    predefined = await api('GET', '/world/events/predefined');
+    renderPredefinedEvents();
+  }
+
+  async function refresh() {
+    await Promise.all([fetchAgents(), fetchStatus(), fetchEvents()]);
+  }
+
+  // ── Renders ───────────────────────────────────────────────────
+  function renderAgentList() {
+    const el = document.getElementById('agent-list');
+    if (!agents.length) {
+      el.innerHTML = '<div class="empty">No agents spawned yet</div>';
+      return;
+    }
+    const sorted = [...agents].sort((a, b) => b.is_alive - a.is_alive || b.energy - a.energy);
+    el.innerHTML = sorted.map(a => {
+      const pct   = a.energy.toFixed(0);
+      const color = energyColor(a.energy, a.is_alive);
+      const inv   = Object.entries(a.inventory || {}).map(([k,v]) => `${k}:${v}`).join(' ') || '—';
+      return `
+        <div class="agent-item ${a.is_alive ? '' : 'dead'}">
+          <div class="agent-header">
+            <span class="agent-name">${a.name}</span>
+            <span class="badge ${a.is_alive ? 'badge-alive' : 'badge-dead'}">${a.is_alive ? 'alive' : 'dead'}</span>
+          </div>
+          <div class="energy-bar">
+            <div class="energy-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <div class="agent-meta">
+            <span>⚡ ${a.energy.toFixed(1)}</span>
+            <span>📍 ${a.x},${a.y}</span>
+            <span>🎒 ${inv}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderActiveEvents(events) {
+    const el = document.getElementById('active-events');
+    if (!events.length) {
+      el.innerHTML = '<div class="empty">No active events</div>';
+      return;
+    }
+    el.innerHTML = events.map(e => `
+      <span class="event-chip">
+        ${e.name || e.event_type}
+        <button class="remove" onclick="deactivateEvent('${e.id}')" title="Remove">×</button>
+      </span>
+    `).join('');
+  }
+
+  function renderPredefinedEvents() {
+    const el = document.getElementById('predefined-events');
+    el.innerHTML = Object.keys(predefined).map(key => `
+      <button class="predefined-btn" onclick="activateEvent('${key}')">${key}</button>
+    `).join('');
+  }
+
+  // ── Activity log ──────────────────────────────────────────────
+  function appendLog(text) {
+    const log = document.getElementById('log');
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    // Highlight tick header line
+    div.innerHTML = text
+      .split('\n')
+      .map(line => line.startsWith('Tick ')
+        ? `<span class="log-tick">${escHtml(line)}</span>`
+        : escHtml(line))
+      .join('<br>');
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    // Keep log from growing too large
+    while (log.children.length > 50) log.removeChild(log.firstChild);
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────
+  function connectWS() {
+    const ws = new WebSocket(WS_URL);
+    ws.onopen    = () => console.log('WS connected');
+    ws.onmessage = e => { appendLog(e.data); refresh(); };
+    ws.onclose   = () => { console.log('WS closed, reconnecting…'); setTimeout(connectWS, 3000); };
+    ws.onerror   = () => ws.close();
+  }
+
+  // ── Button handlers ───────────────────────────────────────────
+  document.getElementById('btn-start').onclick = async () => {
+    const interval = parseInt(document.getElementById('interval-input').value) || 30;
+    await api('POST', `/simulation/start?interval_seconds=${interval}`);
+    await fetchStatus();
+  };
+
+  document.getElementById('btn-stop').onclick = async () => {
+    await api('POST', '/simulation/stop');
+    await fetchStatus();
+  };
+
+  document.getElementById('btn-tick').onclick = async () => {
+    document.getElementById('btn-tick').disabled = true;
+    try {
+      const res = await fetch(API + '/simulation/tick', { method: 'POST' });
+      const text = await res.text();
+      appendLog(text);
+      await refresh();
+    } finally {
+      document.getElementById('btn-tick').disabled = false;
+    }
+  };
+
+  document.getElementById('btn-create').onclick = async () => {
+    const name = document.getElementById('new-name').value.trim();
+    if (!name) { alert('Name is required'); return; }
+    const body = {
+      name,
+      age:              parseInt(document.getElementById('new-age').value) || 25,
+      gender:           document.getElementById('new-gender').value,
+      personality_prompt: document.getElementById('new-personality').value.trim(),
+    };
+    try {
+      await api('POST', '/agents/', body);
+      document.getElementById('new-name').value = '';
+      document.getElementById('new-personality').value = '';
+      await fetchAgents();
+    } catch(e) { alert('Error: ' + e.message); }
+  };
+
+  async function activateEvent(type) {
+    await api('POST', '/world/events', { event_type: type });
+    await fetchEvents();
+  }
+
+  async function deactivateEvent(id) {
+    await api('DELETE', `/world/events/${id}`);
+    await fetchEvents();
+  }
+
+  // ── Init ──────────────────────────────────────────────────────
+  (async () => {
+    await refresh();
+    await fetchPredefined();
+    connectWS();
+  })();
+</script>
+</body>
+</html>

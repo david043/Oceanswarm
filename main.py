@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.routes import agents, simulation, world
 from api.websocket import manager, websocket_endpoint
@@ -36,6 +38,12 @@ app.add_middleware(
 app.include_router(agents.router)
 app.include_router(world.router)
 app.include_router(simulation.router)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def ui():
+    return FileResponse("static/index.html")
 
 
 @app.websocket("/ws")
