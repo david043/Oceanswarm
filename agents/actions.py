@@ -71,6 +71,11 @@ def resolve_gather(agent_data: dict, parameters: dict) -> dict:
     return {**agent_data, "inventory": inventory, "energy": energy}
 
 
+def resolve_communicate(agent_data: dict, parameters: dict) -> dict:
+    """Communicate has no direct state effect beyond energy cost; content is propagated by the engine."""
+    return agent_data
+
+
 def resolve_interact(
     agent_data: dict,
     parameters: dict,
@@ -137,6 +142,8 @@ def apply_action(
         updated = resolve_move(updated, parameters)
     elif action == "gather":
         updated = resolve_gather(updated, parameters)
+    elif action == "communicate":
+        updated = resolve_communicate(updated, parameters)
     elif action == "interact":
         updated, target_update = resolve_interact(updated, parameters, all_agents or [])
 

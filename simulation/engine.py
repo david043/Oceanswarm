@@ -204,13 +204,18 @@ class SimulationEngine:
     async def _log_tick_action(
         self, db: AsyncSession, tick: int, agent_id: str, action_result
     ) -> None:
+        # For communicate actions, use the content as the logged message so the
+        # target agent sees it next tick via last_messages.
+        message = action_result.message
+        if action_result.action == "communicate" and not message:
+            message = action_result.parameters.get("content")
         db.add(
             TickLogModel(
                 tick=tick,
                 agent_id=agent_id,
                 action=action_result.action,
                 parameters=action_result.parameters,
-                message=action_result.message,
+                message=message,
             )
         )
 

@@ -4,6 +4,7 @@ from agents.actions import (
     apply_action,
     check_death,
     consume_from_inventory,
+    resolve_communicate,
     resolve_interact,
     resolve_move,
     CONSUMPTION_THRESHOLD,
@@ -168,6 +169,32 @@ def test_apply_action_kills_agent_when_energy_depleted():
     agent = {**BASE_AGENT, "energy": 0.4}  # idle costs 0.5
     result, _ = apply_action(agent, "idle", {})
     assert result["is_alive"] is False
+
+
+# ---------------------------------------------------------------------------
+# resolve_communicate
+# ---------------------------------------------------------------------------
+
+def test_communicate_does_not_change_state():
+    result = resolve_communicate(BASE_AGENT, {"target_id": "a2", "content": "Hello!"})
+    assert result == BASE_AGENT
+
+
+def test_communicate_deducts_energy_via_apply_action():
+    result, target = apply_action(BASE_AGENT, "communicate", {"target_id": "a2", "content": "Hi"})
+    assert result["energy"] == BASE_AGENT["energy"] - 0.5
+    assert target is None
+
+
+def test_communicate_missing_content_does_not_raise():
+    # content is optional — engine handles missing gracefully
+    result = resolve_communicate(BASE_AGENT, {"target_id": "a2"})
+    assert result["id"] == BASE_AGENT["id"]
+
+
+def test_communicate_unknown_target_does_not_raise():
+    result = resolve_communicate(BASE_AGENT, {"target_id": "nonexistent", "content": "Hey"})
+    assert result == BASE_AGENT
 
 
 # ---------------------------------------------------------------------------
