@@ -139,11 +139,15 @@ class SimulationEngine:
         )
 
         action_result, llm_error = await call_llm(ctx)
-        updated = apply_action(agent, action_result.action, action_result.parameters)
+        updated, target_update = apply_action(
+            agent, action_result.action, action_result.parameters, all_agents
+        )
         updated["memory"] = add_memory(agent["memory"] or [], action_result.memory_update)
         updated["internal_state"] = action_result.internal_state or agent["internal_state"]
 
         await self._persist_agent_update(db, updated)
+        if target_update is not None:
+            await self._persist_agent_update(db, target_update)
         await self._log_tick_action(db, tick, agent["id"], action_result)
 
         return {
@@ -152,6 +156,7 @@ class SimulationEngine:
             "x": updated["x"],
             "y": updated["y"],
             "energy": updated["energy"],
+            "is_alive": updated["is_alive"],
             "action": action_result.action,
             "parameters": action_result.parameters,
             "message": action_result.message,
@@ -189,6 +194,7 @@ class SimulationEngine:
                 x=data["x"],
                 y=data["y"],
                 energy=data["energy"],
+                is_alive=data["is_alive"],
                 inventory=data["inventory"],
                 memory=data["memory"],
                 internal_state=data["internal_state"],

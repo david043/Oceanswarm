@@ -32,6 +32,9 @@ def format_tick_summary(summary: dict) -> str:
         if a.get("llm_error"):
             line += f" [ERROR: {a['llm_error']}]"
 
+        if not a.get("is_alive", True):
+            line += " [DEAD]"
+
         lines.append(line)
 
     return "\n".join(lines)
