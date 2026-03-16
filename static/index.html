@@ -319,6 +319,7 @@
         <textarea id="new-personality" placeholder="e.g. Curious and friendly explorer..."></textarea>
       </label>
       <button class="btn-primary" id="btn-create" style="width:100%">+ Spawn</button>
+      <div id="spawn-status" style="margin-top:6px;font-size:11px;min-height:16px"></div>
     </div>
 
     <hr style="border-color:var(--border)" />
@@ -623,13 +624,17 @@
   // ── Button handlers ───────────────────────────────────────────
   document.getElementById('btn-start').onclick = async () => {
     const interval = parseInt(document.getElementById('interval-input').value) || 30;
-    await api('POST', `/simulation/start?interval_seconds=${interval}`);
-    await fetchStatus();
+    try {
+      await api('POST', `/simulation/start?interval_seconds=${interval}`);
+      await fetchStatus();
+    } catch(e) { console.error('Start failed:', e); }
   };
 
   document.getElementById('btn-stop').onclick = async () => {
-    await api('POST', '/simulation/stop');
-    await fetchStatus();
+    try {
+      await api('POST', '/simulation/stop');
+      await fetchStatus();
+    } catch(e) { console.error('Stop failed:', e); }
   };
 
   document.getElementById('btn-tick').onclick = async () => {
@@ -645,20 +650,42 @@
   };
 
   document.getElementById('btn-create').onclick = async () => {
+    const btn = document.getElementById('btn-create');
+    const status = document.getElementById('spawn-status');
     const name = document.getElementById('new-name').value.trim();
-    if (!name) { alert('Name is required'); return; }
+
+    if (!name) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'Name is required.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Spawning…';
+    status.textContent = '';
+
     const body = {
       name,
-      age:              parseInt(document.getElementById('new-age').value) || 25,
-      gender:           document.getElementById('new-gender').value,
+      age:               parseInt(document.getElementById('new-age').value) || 25,
+      gender:            document.getElementById('new-gender').value,
       personality_prompt: document.getElementById('new-personality').value.trim(),
     };
+
     try {
       await api('POST', '/agents/', body);
       document.getElementById('new-name').value = '';
       document.getElementById('new-personality').value = '';
+      status.style.color = 'var(--green)';
+      status.textContent = `✓ ${name} spawned!`;
       await fetchAgents();
-    } catch(e) { alert('Error: ' + e.message); }
+    } catch(e) {
+      console.error('Spawn failed:', e);
+      status.style.color = 'var(--red)';
+      status.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '+ Spawn';
+    }
   };
 
   async function activateEvent(type) {
