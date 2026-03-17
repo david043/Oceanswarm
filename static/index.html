@@ -171,16 +171,17 @@
     /* ── Canvas area ── */
     #world-wrap {
       display: flex;
-      align-items: center;
-      justify-content: center;
+      align-items: stretch;
+      justify-content: stretch;
       background: var(--bg);
       position: relative;
       overflow: hidden;
     }
     #canvas {
       display: block;
+      width: 100%;
+      height: 100%;
       cursor: crosshair;
-      image-rendering: pixelated;
     }
     #tooltip {
       position: absolute;
@@ -195,7 +196,56 @@
       z-index: 10;
       max-width: 160px;
     }
-    #tooltip .t-name { font-weight: 700; color: var(--accent2); margin-bottom: 2px; }
+    #tooltip .t-name { font-weight: 700; margin-bottom: 2px; }
+
+    /* ── Zoom controls ── */
+    #zoom-controls {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(22, 27, 39, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 5px 8px;
+      z-index: 10;
+      backdrop-filter: blur(4px);
+    }
+    #zoom-controls button {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 2px 8px;
+      font-size: 14px;
+      line-height: 1.4;
+      border-radius: 4px;
+    }
+    #zoom-controls button:hover { border-color: var(--accent); color: var(--accent2); }
+    #zoom-pct {
+      font-size: 11px;
+      color: var(--dim);
+      min-width: 38px;
+      text-align: center;
+    }
+
+    /* ── Map hint ── */
+    #map-hint {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: var(--dim);
+      background: rgba(22,27,39,0.75);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 3px 10px;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 1s;
+    }
 
     /* ── Agent list ── */
     .agent-item {
@@ -211,6 +261,17 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 5px;
+    }
+    .agent-name-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .agent-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
     }
     .agent-name { font-weight: 600; font-size: 12px; }
     .agent-pos  { color: var(--dim); font-size: 10px; }
@@ -264,6 +325,36 @@
 
     /* ── Empty state ── */
     .empty { color: var(--dim); font-size: 11px; padding: 8px 0; text-align: center; }
+
+    /* ── Agent detail card ── */
+    #agent-detail-wrap { margin-bottom: 10px; }
+    #agent-detail {
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      padding: 10px;
+      font-size: 11px;
+      line-height: 1.8;
+    }
+    #agent-detail .d-name {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    #agent-detail .d-row {
+      display: flex;
+      justify-content: space-between;
+      color: var(--dim);
+    }
+    #agent-detail .d-row span:last-child { color: var(--text); }
+    #agent-detail .d-desc {
+      margin-top: 6px;
+      color: var(--dim);
+      font-style: italic;
+      font-size: 10px;
+      border-top: 1px solid var(--border);
+      padding-top: 5px;
+    }
   </style>
 </head>
 <body>
@@ -336,10 +427,22 @@
   <div id="world-wrap">
     <canvas id="canvas"></canvas>
     <div id="tooltip"></div>
+    <div id="map-hint">scroll to zoom · drag to pan</div>
+    <div id="zoom-controls">
+      <button id="btn-zoom-in"  title="Zoom in">+</button>
+      <button id="btn-zoom-out" title="Zoom out">−</button>
+      <button id="btn-zoom-reset" title="Reset view">⊙</button>
+      <span id="zoom-pct">100%</span>
+    </div>
   </div>
 
   <!-- RIGHT PANEL -->
   <div class="panel" style="border-left:1px solid var(--border)">
+
+    <div id="agent-detail-wrap" style="flex-shrink:0;display:none">
+      <div class="section-title">Selected Agent</div>
+      <div id="agent-detail"></div>
+    </div>
 
     <div style="flex-shrink:0">
       <div class="section-title">Agents</div>
@@ -356,23 +459,32 @@
 </main>
 
 <script>
-  const API = '';  // same origin
+  const API    = '';
   const WS_URL = `ws://${location.host}/ws`;
 
   const CELL = 5;
   const GRID = 100;
-  const CANVAS_SIZE = GRID * CELL;
 
-  let agents = [];
+  let agents    = [];
   let simStatus = { current_tick: 0, is_running: false, tick_interval_seconds: 30 };
   let predefined = {};
-  let hoveredAgent = null;
+  let hoveredAgent  = null;
+  let selectedAgent = null;
 
-  // ── Canvas setup ──────────────────────────────────────────────
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width  = CANVAS_SIZE;
-  canvas.height = CANVAS_SIZE;
+  // ── Per-agent color ────────────────────────────────────────────
+  // Deterministic hue from agent UUID so color survives page reloads
+  function agentHue(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) {
+      h = Math.imul(h * 31 + id.charCodeAt(i), 1) | 0;
+    }
+    return Math.abs(h) % 360;
+  }
+
+  function agentColor(id, alive) {
+    if (!alive) return '#374151';
+    return `hsl(${agentHue(id)}, 75%, 62%)`;
+  }
 
   function energyColor(energy, alive) {
     if (!alive) return '#374151';
@@ -381,22 +493,107 @@
     return '#f87171';
   }
 
+  // ── Canvas & view state ───────────────────────────────────────
+  const wrap   = document.getElementById('world-wrap');
+  const canvas = document.getElementById('canvas');
+  const ctx    = canvas.getContext('2d');
+
+  let canvasW = 0;
+  let canvasH = 0;
+
+  // view: world→screen  screenX = worldX * scale + offsetX
+  let view = { x: 0, y: 0, scale: 1 };
+
+  function initView(w, h) {
+    const worldPx = GRID * CELL;
+    const fit = Math.min(w / worldPx, h / worldPx) * 0.9;
+    view.scale = fit;
+    view.x = (w - worldPx * fit) / 2;
+    view.y = (h - worldPx * fit) / 2;
+  }
+
+  function syncCanvasSize() {
+    const { width, height } = wrap.getBoundingClientRect();
+    if (width === canvasW && height === canvasH) return;
+    const wasEmpty = canvasW === 0;
+    canvasW = width;
+    canvasH = height;
+    canvas.width  = width;
+    canvas.height = height;
+    if (wasEmpty) initView(width, height);
+    drawCanvas();
+  }
+
+  new ResizeObserver(syncCanvasSize).observe(wrap);
+
+  // ── Zoom helpers ──────────────────────────────────────────────
+  const MIN_SCALE = 0.2;
+  const MAX_SCALE = 20;
+
+  function zoomAround(factor, cx, cy) {
+    const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * factor));
+    const actual   = newScale / view.scale;
+    view.x = cx - (cx - view.x) * actual;
+    view.y = cy - (cy - view.y) * actual;
+    view.scale = newScale;
+    updateZoomDisplay();
+    drawCanvas();
+  }
+
+  function zoomBy(factor) {
+    zoomAround(factor, canvasW / 2, canvasH / 2);
+  }
+
+  function resetView() {
+    initView(canvasW, canvasH);
+    updateZoomDisplay();
+    drawCanvas();
+  }
+
+  function updateZoomDisplay() {
+    document.getElementById('zoom-pct').textContent = Math.round(view.scale * 100) + '%';
+  }
+
+  // ── Canvas drawing ────────────────────────────────────────────
   function drawCanvas() {
-    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    const W = canvas.width;
+    const H = canvas.height;
 
-    // Background
+    // Reset transform then clear
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    // Full-screen background
     ctx.fillStyle = '#0b0e17';
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.fillRect(0, 0, W, H);
 
-    // Subtle grid every 10 cells
+    // Apply world transform
+    ctx.save();
+    ctx.translate(view.x, view.y);
+    ctx.scale(view.scale, view.scale);
+
+    const worldW = GRID * CELL;
+    const worldH = GRID * CELL;
+
+    // World background
+    ctx.fillStyle = '#0d1020';
+    ctx.fillRect(0, 0, worldW, worldH);
+
+    // Grid lines (thin, adapt to zoom)
+    const lineW = Math.max(0.3, 0.5 / view.scale);
     ctx.strokeStyle = '#1a1d26';
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth   = lineW;
     for (let i = 0; i <= GRID; i += 10) {
       ctx.beginPath();
-      ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, CANVAS_SIZE);
-      ctx.moveTo(0, i * CELL); ctx.lineTo(CANVAS_SIZE, i * CELL);
+      ctx.moveTo(i * CELL, 0);      ctx.lineTo(i * CELL, worldH);
+      ctx.moveTo(0, i * CELL);      ctx.lineTo(worldW,   i * CELL);
       ctx.stroke();
     }
+
+    // World border
+    ctx.strokeStyle = '#252d40';
+    ctx.lineWidth   = Math.max(0.5, 1 / view.scale);
+    ctx.strokeRect(0, 0, worldW, worldH);
 
     // Interaction radius ring for hovered agent
     if (hoveredAgent) {
@@ -404,69 +601,81 @@
       const cy = hoveredAgent.y * CELL + CELL / 2;
       ctx.beginPath();
       ctx.arc(cx, cy, 5 * CELL, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(99,102,241,0.3)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(99,102,241,0.35)';
+      ctx.lineWidth   = Math.max(0.5, 1 / view.scale);
       ctx.stroke();
     }
 
     // Agents
     for (const a of agents) {
-      const px = a.x * CELL + CELL / 2;
-      const py = a.y * CELL + CELL / 2;
-      const r  = a.is_alive ? 3.5 : 2.5;
-      const color = energyColor(a.energy, a.is_alive);
+      const px    = a.x * CELL + CELL / 2;
+      const py    = a.y * CELL + CELL / 2;
+      const r     = a.is_alive ? 3.5 : 2;
+      const color = agentColor(a.id, a.is_alive);
 
-      if (a.is_alive) {
-        // Glow
-        const g = ctx.createRadialGradient(px, py, 0, px, py, r * 2.5);
-        g.addColorStop(0, color + '55');
-        g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(px, py, r * 2.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
+      // Main dot — unique agent color
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
 
-      // Highlight hovered
+      // Selected highlight (solid white ring)
+      if (selectedAgent && selectedAgent.id === a.id) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth   = Math.max(0.8, 2 / view.scale);
+        ctx.stroke();
+      }
+
+      // Hover highlight
       if (hoveredAgent && hoveredAgent.id === a.id) {
         ctx.beginPath();
-        ctx.arc(px, py, r + 2, 0, Math.PI * 2);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1.5;
+        ctx.arc(px, py, r + 3.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth   = Math.max(0.5, 1.5 / view.scale);
         ctx.stroke();
       }
     }
+
+    ctx.restore();
   }
 
-  // Canvas hover tooltip
+  // ── Mouse: hover / tooltip ────────────────────────────────────
+  // Find closest agent to a screen coordinate within maxPx screen pixels
+  function agentAtScreen(sx, sy, maxPx = 14) {
+    let best = null, bestDist = maxPx;
+    for (const a of agents) {
+      const wx = a.x * CELL + CELL / 2;
+      const wy = a.y * CELL + CELL / 2;
+      const screenX = wx * view.scale + view.x;
+      const screenY = wy * view.scale + view.y;
+      const d = Math.hypot(sx - screenX, sy - screenY);
+      if (d < bestDist) { bestDist = d; best = a; }
+    }
+    return best;
+  }
+
   canvas.addEventListener('mousemove', e => {
+    if (isDragging) return;
+
     const rect = canvas.getBoundingClientRect();
-    const scaleX = CANVAS_SIZE / rect.width;
-    const scaleY = CANVAS_SIZE / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top)  * scaleY;
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
 
-    const gx = Math.floor(mx / CELL);
-    const gy = Math.floor(my / CELL);
+    hoveredAgent = agentAtScreen(sx, sy);
 
-    hoveredAgent = agents.find(a =>
-      Math.abs(a.x - gx) <= 1 && Math.abs(a.y - gy) <= 1
-    ) || null;
+    canvas.style.cursor = hoveredAgent ? 'crosshair' : 'grab';
 
     const tip = document.getElementById('tooltip');
     if (hoveredAgent) {
-      const a = hoveredAgent;
+      const a    = hoveredAgent;
       const mood = a.internal_state?.mood || '—';
       const goal = a.internal_state?.goal || '—';
-      const inv  = Object.entries(a.inventory || {})
-        .map(([k,v]) => `${k}:${v}`).join(', ') || 'empty';
+      const inv  = Object.entries(a.inventory || {}).map(([k,v]) => `${k}:${v}`).join(', ') || 'empty';
+      const col  = agentColor(a.id, a.is_alive);
       tip.innerHTML = `
-        <div class="t-name">${a.name}</div>
+        <div class="t-name" style="color:${col}">${a.name}</div>
         <div>⚡ ${a.energy.toFixed(1)} / 100</div>
         <div>📍 (${a.x}, ${a.y})</div>
         <div>😐 ${mood}</div>
@@ -475,25 +684,167 @@
         ${!a.is_alive ? '<div style="color:var(--red)">✝ Dead</div>' : ''}
       `;
       tip.style.display = 'block';
-      // Position near cursor but inside canvas wrapper
-      const wrapRect = canvas.parentElement.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
       let tx = e.clientX - wrapRect.left + 14;
       let ty = e.clientY - wrapRect.top  - 10;
       if (tx + 160 > wrapRect.width)  tx -= 180;
-      if (ty + 130 > wrapRect.height) ty -= 140;
+      if (ty + 140 > wrapRect.height) ty -= 150;
       tip.style.left = tx + 'px';
       tip.style.top  = ty + 'px';
     } else {
       tip.style.display = 'none';
     }
+
     drawCanvas();
   });
 
   canvas.addEventListener('mouseleave', () => {
-    hoveredAgent = null;
-    document.getElementById('tooltip').style.display = 'none';
-    drawCanvas();
+    if (!isDragging) {
+      hoveredAgent = null;
+      document.getElementById('tooltip').style.display = 'none';
+      canvas.style.cursor = 'crosshair';
+      drawCanvas();
+    }
   });
+
+  // ── Mouse: pan ────────────────────────────────────────────────
+  let isDragging  = false;
+  let hasDragged  = false;
+  let dragStart   = { x: 0, y: 0 };
+  let viewAtDrag  = { x: 0, y: 0 };
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    isDragging = true;
+    hasDragged = false;
+    dragStart  = { x: e.clientX, y: e.clientY };
+    viewAtDrag = { x: view.x, y: view.y };
+    canvas.style.cursor = 'grabbing';
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    if (!hasDragged && Math.hypot(dx, dy) > 8) {
+      hasDragged = true;
+      document.getElementById('tooltip').style.display = 'none';
+    }
+    if (hasDragged) {
+      view.x = viewAtDrag.x + dx;
+      view.y = viewAtDrag.y + dy;
+      drawCanvas();
+    }
+  });
+
+  window.addEventListener('mouseup', e => {
+    if (!isDragging) return;
+    const wasDrag = hasDragged;
+    isDragging = false;
+    canvas.style.cursor = hoveredAgent ? 'crosshair' : 'grab';
+
+    // Treat as a click if mouse barely moved
+    if (!wasDrag) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      // Only act if the mouseup is inside the canvas
+      if (sx >= 0 && sy >= 0 && sx <= rect.width && sy <= rect.height) {
+        const clicked = agentAtScreen(sx, sy, 20);
+        selectedAgent = (clicked && selectedAgent && selectedAgent.id === clicked.id) ? null : clicked;
+        renderAgentDetail();
+        renderAgentList();
+        drawCanvas();
+      }
+    }
+  });
+
+  // ── Mouse: zoom (wheel) ───────────────────────────────────────
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect   = canvas.getBoundingClientRect();
+    const cx     = e.clientX - rect.left;
+    const cy     = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    zoomAround(factor, cx, cy);
+  }, { passive: false });
+
+  // ── Touch: pinch-zoom + pan ───────────────────────────────────
+  let touches = {};
+  let lastPinchDist = null;
+
+  let touchMoved = false;
+  let tapStart   = { x: 0, y: 0 };
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches[t.identifier] = { x: t.clientX, y: t.clientY };
+    if (Object.keys(touches).length === 1) {
+      const [t] = Object.values(touches);
+      isDragging = true;
+      touchMoved = false;
+      dragStart  = { x: t.x, y: t.y };
+      tapStart   = { x: t.x, y: t.y };
+      viewAtDrag = { x: view.x, y: view.y };
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches[t.identifier] = { x: t.clientX, y: t.clientY };
+    const pts = Object.values(touches);
+    if (pts.length === 2) {
+      isDragging = false;
+      touchMoved = true;
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (lastPinchDist !== null) {
+        const cx = (pts[0].x + pts[1].x) / 2 - canvas.getBoundingClientRect().left;
+        const cy = (pts[0].y + pts[1].y) / 2 - canvas.getBoundingClientRect().top;
+        zoomAround(dist / lastPinchDist, cx, cy);
+      }
+      lastPinchDist = dist;
+    } else if (pts.length === 1 && isDragging) {
+      const dx = pts[0].x - dragStart.x;
+      const dy = pts[0].y - dragStart.y;
+      if (Math.hypot(dx, dy) > 8) touchMoved = true;
+      view.x = viewAtDrag.x + dx;
+      view.y = viewAtDrag.y + dy;
+      drawCanvas();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    const wasSingleTap = Object.keys(touches).length === 1 && !touchMoved;
+    const endTouch = e.changedTouches[0];
+
+    for (const t of e.changedTouches) delete touches[t.identifier];
+    if (Object.keys(touches).length < 2) lastPinchDist = null;
+    if (Object.keys(touches).length === 0) isDragging = false;
+
+    // Tap = single finger, barely moved → select agent
+    if (wasSingleTap && endTouch) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = endTouch.clientX - rect.left;
+      const sy = endTouch.clientY - rect.top;
+      const tapped = agentAtScreen(sx, sy, 28);
+      selectedAgent = (tapped && selectedAgent && selectedAgent.id === tapped.id) ? null : tapped;
+      renderAgentDetail();
+      renderAgentList();
+      drawCanvas();
+    }
+  });
+
+  // ── Zoom control buttons ──────────────────────────────────────
+  document.getElementById('btn-zoom-in').onclick    = () => zoomBy(1.4);
+  document.getElementById('btn-zoom-out').onclick   = () => zoomBy(1 / 1.4);
+  document.getElementById('btn-zoom-reset').onclick = resetView;
+
+  // Fade out hint after 4 s
+  setTimeout(() => {
+    const h = document.getElementById('map-hint');
+    h.style.opacity = '0';
+    setTimeout(() => h.remove(), 1000);
+  }, 4000);
 
   // ── Fetch helpers ─────────────────────────────────────────────
   async function api(method, path, body) {
@@ -508,6 +859,7 @@
   async function fetchAgents() {
     agents = await api('GET', '/agents/');
     renderAgentList();
+    renderAgentDetail();
     drawCanvas();
     const alive = agents.filter(a => a.is_alive).length;
     document.getElementById('agent-count').textContent = alive;
@@ -548,16 +900,22 @@
     const sorted = [...agents].sort((a, b) => b.is_alive - a.is_alive || b.energy - a.energy);
     el.innerHTML = sorted.map(a => {
       const pct   = a.energy.toFixed(0);
-      const color = energyColor(a.energy, a.is_alive);
+      const eCol  = energyColor(a.energy, a.is_alive);
+      const aCol  = agentColor(a.id, a.is_alive);
       const inv   = Object.entries(a.inventory || {}).map(([k,v]) => `${k}:${v}`).join(' ') || '—';
+      const sel   = selectedAgent && selectedAgent.id === a.id;
       return `
-        <div class="agent-item ${a.is_alive ? '' : 'dead'}">
+        <div class="agent-item ${a.is_alive ? '' : 'dead'}" onclick="selectAgentById('${a.id}')"
+             style="cursor:pointer;${sel ? 'border-color:var(--accent);' : ''}">
           <div class="agent-header">
-            <span class="agent-name">${a.name}</span>
+            <div class="agent-name-wrap">
+              <span class="agent-dot" style="background:${aCol}"></span>
+              <span class="agent-name">${a.name}</span>
+            </div>
             <span class="badge ${a.is_alive ? 'badge-alive' : 'badge-dead'}">${a.is_alive ? 'alive' : 'dead'}</span>
           </div>
           <div class="energy-bar">
-            <div class="energy-fill" style="width:${pct}%;background:${color}"></div>
+            <div class="energy-fill" style="width:${pct}%;background:${eCol}"></div>
           </div>
           <div class="agent-meta">
             <span>⚡ ${a.energy.toFixed(1)}</span>
@@ -590,12 +948,68 @@
     `).join('');
   }
 
+  // ── Select agent & center map ────────────────────────────────
+  function selectAgentById(id) {
+    const a = agents.find(x => x.id === id);
+    if (!a) return;
+    selectedAgent = (selectedAgent && selectedAgent.id === id) ? null : a;
+    if (selectedAgent) {
+      // Pan canvas so agent is centered
+      const worldPx = a.x * CELL + CELL / 2;
+      const worldPy = a.y * CELL + CELL / 2;
+      view.x = canvasW / 2 - worldPx * view.scale;
+      view.y = canvasH / 2 - worldPy * view.scale;
+    }
+    renderAgentDetail();
+    renderAgentList();
+    drawCanvas();
+  }
+
+  // ── Agent detail panel ────────────────────────────────────────
+  function renderAgentDetail() {
+    const wrap = document.getElementById('agent-detail-wrap');
+    const el   = document.getElementById('agent-detail');
+
+    if (!selectedAgent) {
+      wrap.style.display = 'none';
+      el.innerHTML = '';
+      return;
+    }
+
+    // Refresh from latest agents array
+    const a   = agents.find(x => x.id === selectedAgent.id) || selectedAgent;
+    const col = agentColor(a.id, a.is_alive);
+    const eCol = energyColor(a.energy, a.is_alive);
+    const mood  = a.internal_state?.mood  || '—';
+    const goal  = a.internal_state?.goal  || '—';
+    const trust = a.internal_state?.trust_level != null ? a.internal_state.trust_level : '—';
+    const inv   = Object.entries(a.inventory || {}).map(([k,v]) => `${k}: ${v}`).join(', ') || 'empty';
+
+    wrap.style.display = 'block';
+    el.innerHTML = `
+      <div class="d-name" style="color:${col}">${a.name}
+        <span class="badge ${a.is_alive ? 'badge-alive' : 'badge-dead'}" style="margin-left:6px">${a.is_alive ? 'alive' : 'dead'}</span>
+      </div>
+      <div class="energy-bar" style="margin-bottom:7px">
+        <div class="energy-fill" style="width:${a.energy.toFixed(0)}%;background:${eCol}"></div>
+      </div>
+      <div class="d-row"><span>⚡ Energy</span><span>${a.energy.toFixed(1)} / 100</span></div>
+      <div class="d-row"><span>📍 Position</span><span>(${a.x}, ${a.y})</span></div>
+      <div class="d-row"><span>🎂 Age</span><span>${a.age ?? '—'}</span></div>
+      <div class="d-row"><span>⚧ Gender</span><span>${a.gender ?? '—'}</span></div>
+      <div class="d-row"><span>😐 Mood</span><span>${mood}</span></div>
+      <div class="d-row"><span>🎯 Goal</span><span>${goal}</span></div>
+      <div class="d-row"><span>🤝 Trust</span><span>${trust}</span></div>
+      <div class="d-row"><span>🎒 Inventory</span><span>${inv}</span></div>
+      ${a.personality_prompt ? `<div class="d-desc">${escHtml(a.personality_prompt)}</div>` : ''}
+    `;
+  }
+
   // ── Activity log ──────────────────────────────────────────────
   function appendLog(text) {
     const log = document.getElementById('log');
     const div = document.createElement('div');
     div.className = 'log-entry';
-    // Highlight tick header line
     div.innerHTML = text
       .split('\n')
       .map(line => line.startsWith('Tick ')
@@ -604,7 +1018,6 @@
       .join('<br>');
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
-    // Keep log from growing too large
     while (log.children.length > 50) log.removeChild(log.firstChild);
   }
 
@@ -640,7 +1053,7 @@
   document.getElementById('btn-tick').onclick = async () => {
     document.getElementById('btn-tick').disabled = true;
     try {
-      const res = await fetch(API + '/simulation/tick', { method: 'POST' });
+      const res  = await fetch(API + '/simulation/tick', { method: 'POST' });
       const text = await res.text();
       appendLog(text);
       await refresh();
@@ -650,9 +1063,9 @@
   };
 
   document.getElementById('btn-create').onclick = async () => {
-    const btn = document.getElementById('btn-create');
+    const btn    = document.getElementById('btn-create');
     const status = document.getElementById('spawn-status');
-    const name = document.getElementById('new-name').value.trim();
+    const name   = document.getElementById('new-name').value.trim();
 
     if (!name) {
       status.style.color = 'var(--red)';
@@ -660,7 +1073,7 @@
       return;
     }
 
-    btn.disabled = true;
+    btn.disabled    = true;
     btn.textContent = 'Spawning…';
     status.textContent = '';
 
@@ -673,7 +1086,7 @@
 
     try {
       await api('POST', '/agents/', body);
-      document.getElementById('new-name').value = '';
+      document.getElementById('new-name').value        = '';
       document.getElementById('new-personality').value = '';
       status.style.color = 'var(--green)';
       status.textContent = `✓ ${name} spawned!`;
@@ -683,7 +1096,7 @@
       status.style.color = 'var(--red)';
       status.textContent = 'Error: ' + e.message;
     } finally {
-      btn.disabled = false;
+      btn.disabled    = false;
       btn.textContent = '+ Spawn';
     }
   };
@@ -700,6 +1113,8 @@
 
   // ── Init ──────────────────────────────────────────────────────
   (async () => {
+    syncCanvasSize();        // size canvas before first draw
+    updateZoomDisplay();
     await refresh();
     await fetchPredefined();
     connectWS();
