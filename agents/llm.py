@@ -123,7 +123,13 @@ async def generate_tick_summary(tick: int, actions: list[dict]) -> str:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        stdout, _ = await proc.communicate()
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            logger.warning("Tick summary timed out")
+            return ""
         if proc.returncode == 0:
             return stdout.decode().strip()
     except Exception as exc:
@@ -155,7 +161,14 @@ async def call_llm(ctx: AgentContext) -> tuple[AgentAction, str | None]:
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            msg = f"claude CLI timed out for agent {ctx.id}"
+            logger.warning(msg)
+            return AgentAction(action="idle", internal_state=ctx.internal_state), msg
 
         if proc.returncode != 0:
             error = stderr.decode().strip() or "claude CLI exited with non-zero status"
