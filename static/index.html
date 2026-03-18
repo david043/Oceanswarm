@@ -459,7 +459,11 @@
     </div>
 
     <div style="display:flex;flex-direction:column;flex:1;min-height:120px;overflow:hidden">
-      <div class="section-title">Activity Log</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-shrink:0">
+        <span class="section-title" id="log-title" style="margin-bottom:0;flex:1">Activity Log</span>
+        <input type="number" id="log-tick-filter" placeholder="tick…" min="1"
+               style="width:62px;margin-bottom:0;padding:2px 5px;font-size:11px" />
+      </div>
       <div id="log"></div>
     </div>
 
@@ -480,6 +484,10 @@
   let hoveredAgent  = null;
   let selectedAgent = null;
   let searchQuery   = '';
+
+  let generalLogEntries = [];  // {text, tick} — in-memory general log
+  let agentLogEntries   = [];  // fetched from API for selected agent
+  let logTickFilter     = null;
 
   // ── Per-agent color ────────────────────────────────────────────
   // Deterministic hue from agent UUID so color survives page reloads
@@ -996,7 +1004,6 @@
     if (!a) return;
     selectedAgent = (selectedAgent && selectedAgent.id === id) ? null : a;
     if (selectedAgent) {
-      // Pan canvas so agent is centered
       const worldPx = a.x * CELL + CELL / 2;
       const worldPy = a.y * CELL + CELL / 2;
       view.x = canvasW / 2 - worldPx * view.scale;
@@ -1005,28 +1012,76 @@
     renderAgentDetail();
     renderAgentList();
     drawCanvas();
+    // Switch log panel
+    const titleEl = document.getElementById('log-title');
+    if (selectedAgent) {
+      titleEl.innerHTML = `<span style="color:${agentColor(selectedAgent.id, true)}">${escHtml(selectedAgent.name)}</span>'s Log`;
+      agentLogEntries = [];
+      renderLog();
+      fetchAgentLog(selectedAgent.id);
+    } else {
+      titleEl.textContent = 'Activity Log';
+      renderLog();
+    }
   }
 
   // ── Agent detail panel (inline in list — no-op stub kept for call-site compat) ──
   function renderAgentDetail() {}
 
   // ── Activity log ──────────────────────────────────────────────
-  function appendLog(text) {
+  function formatLogLine(line) {
+    if (line.startsWith('Tick '))  return `<span class="log-tick">${escHtml(line)}</span>`;
+    if (line.startsWith('[tick ')) return `<span class="log-debug">${escHtml(line)}</span>`;
+    if (line.startsWith('ERROR'))  return `<span class="log-error">${escHtml(line)}</span>`;
+    return escHtml(line);
+  }
+
+  function renderLog() {
     const log = document.getElementById('log');
-    const div = document.createElement('div');
-    div.className = 'log-entry';
-    div.innerHTML = text
-      .split('\n')
-      .map(line => {
-        if (line.startsWith('Tick '))  return `<span class="log-tick">${escHtml(line)}</span>`;
-        if (line.startsWith('[tick ')) return `<span class="log-debug">${escHtml(line)}</span>`;
-        if (line.startsWith('ERROR')) return `<span class="log-error">${escHtml(line)}</span>`;
-        return escHtml(line);
-      })
-      .join('<br>');
-    log.appendChild(div);
+    const entries = selectedAgent ? agentLogEntries : generalLogEntries;
+    const filtered = logTickFilter
+      ? entries.filter(e => e.tick == null || e.tick >= logTickFilter)
+      : entries;
+    log.innerHTML = '';
+    if (!filtered.length) {
+      log.innerHTML = '<div class="empty">No entries</div>';
+      return;
+    }
+    for (const e of filtered) {
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      div.innerHTML = e.text.split('\n').map(formatLogLine).join('<br>');
+      log.appendChild(div);
+    }
     log.scrollTop = log.scrollHeight;
-    while (log.children.length > 50) log.removeChild(log.firstChild);
+  }
+
+  function appendLog(text) {
+    const m = text.match(/^Tick (\d+)/);
+    generalLogEntries.push({ text, tick: m ? parseInt(m[1]) : null });
+    if (generalLogEntries.length > 100) generalLogEntries.shift();
+    if (!selectedAgent) renderLog();
+  }
+
+  function formatAgentLogEntry(l) {
+    let line = `Tick ${l.tick} — ${l.action}`;
+    const p = l.parameters || {};
+    if (l.action === 'move' && p.direction)         line += ` ${p.direction}`;
+    else if (l.action === 'interact' && p.type)     line += ` (${p.type})`;
+    else if (l.action === 'communicate' && p.target_id) line += ` → ${p.target_id.slice(0,6)}…`;
+    if (l.message) line += `: "${l.message.length > 80 ? l.message.slice(0,80) + '…' : l.message}"`;
+    return line;
+  }
+
+  async function fetchAgentLog(agentId) {
+    try {
+      const logs = await api('GET', `/simulation/logs?agent_id=${agentId}&limit=200`);
+      agentLogEntries = logs.reverse().map(l => ({
+        tick: l.tick,
+        text: formatAgentLogEntry(l),
+      }));
+      renderLog();
+    } catch(e) { console.warn('fetchAgentLog failed:', e); }
   }
 
   function escHtml(s) {
@@ -1039,7 +1094,13 @@
   function connectWS() {
     const ws = new WebSocket(WS_URL);
     ws.onopen    = () => { console.log('WS connected'); wsAlive = true; };
-    ws.onmessage = e => { wsAlive = true; appendLog(e.data); refresh().catch(console.warn); };
+    ws.onmessage = e => {
+      wsAlive = true;
+      appendLog(e.data);
+      refresh().then(() => {
+        if (selectedAgent) fetchAgentLog(selectedAgent.id);
+      }).catch(console.warn);
+    };
     ws.onclose   = () => { wsAlive = false; console.log('WS closed, reconnecting…'); setTimeout(connectWS, 3000); };
     ws.onerror   = () => ws.close();
   }
@@ -1131,6 +1192,13 @@
   document.getElementById('agent-search').addEventListener('input', e => {
     searchQuery = e.target.value;
     renderAgentList();
+  });
+
+  // ── Log tick filter ───────────────────────────────────────────
+  document.getElementById('log-tick-filter').addEventListener('input', e => {
+    const v = parseInt(e.target.value);
+    logTickFilter = isNaN(v) || v < 1 ? null : v;
+    renderLog();
   });
 
   // ── Init ──────────────────────────────────────────────────────

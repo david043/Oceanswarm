@@ -75,14 +75,17 @@ async def test_llm():
 
 @router.get("/logs")
 async def get_tick_logs(
-    limit: int = 50,
+    limit: int = 200,
     tick: int | None = None,
+    min_tick: int | None = None,
     agent_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     query = select(TickLogModel).order_by(TickLogModel.created_at.desc()).limit(limit)
     if tick is not None:
         query = query.where(TickLogModel.tick == tick)
+    if min_tick is not None:
+        query = query.where(TickLogModel.tick >= min_tick)
     if agent_id is not None:
         query = query.where(TickLogModel.agent_id == agent_id)
     result = await db.execute(query)

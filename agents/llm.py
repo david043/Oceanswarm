@@ -155,6 +155,7 @@ async def call_llm(ctx: AgentContext) -> tuple[AgentAction, str | None]:
 
     cmd = [
         "claude", "-p", prompt,
+        "--model", "claude-haiku-4-5-20251001",
         "--system-prompt", SYSTEM_PROMPT,
         "--output-format", "json",
         "--no-session-persistence",
