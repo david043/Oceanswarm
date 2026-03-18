@@ -14,10 +14,6 @@ from simulation.formatting import format_tick_summary
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
 
-class ClockStartRequest(BaseModel):
-    interval_seconds: int | None = None
-
-
 class SimulationStatus(BaseModel):
     current_tick: int
     is_running: bool
@@ -41,9 +37,9 @@ async def manual_tick():
 
 
 @router.post("/start")
-async def start_clock(payload: ClockStartRequest = ClockStartRequest()):
-    await engine.start_clock(payload.interval_seconds)
-    return {"status": "started", "interval_seconds": payload.interval_seconds or 30}
+async def start_clock(interval_seconds: int | None = None):
+    await engine.start_clock(interval_seconds)
+    return {"status": "started", "interval_seconds": interval_seconds or 30}
 
 
 @router.post("/stop")

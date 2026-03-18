@@ -26,13 +26,15 @@ class ConnectionManager:
         logger.info("WebSocket client disconnected (%d remaining)", len(self._connections))
 
     async def broadcast(self, data: dict) -> None:
-        message = format_tick_summary(data)
+        await self.broadcast_text(format_tick_summary(data))
+
+    async def broadcast_text(self, text: str) -> None:
         async with self._lock:
             targets = list(self._connections)
         dead = []
         for ws in targets:
             try:
-                await ws.send_text(message)
+                await ws.send_text(text)
             except Exception:
                 dead.append(ws)
         for ws in dead:

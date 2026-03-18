@@ -53,6 +53,7 @@ class AgentRead(BaseModel):
     y: int
     energy: float
     is_alive: bool
+    status: str = "alive"  # alive | idle | dead
     inventory: dict
     memory: list[str]
     internal_state: dict

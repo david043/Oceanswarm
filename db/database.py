@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -24,3 +25,8 @@ async def get_db() -> AsyncSession:
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migration: add status column if it doesn't exist yet
+        try:
+            await conn.execute(text("ALTER TABLE agents ADD COLUMN status VARCHAR NOT NULL DEFAULT 'alive'"))
+        except Exception:
+            pass  # Column already exists

@@ -94,19 +94,30 @@ Decide your next action. Valid actions:
 """
 
 
-async def generate_tick_summary(tick: int, actions: list[dict]) -> str:
-    """Generate a short narrative summary of what happened this tick."""
-    lines = []
+async def generate_tick_summary(tick: int, actions: list[dict], prev_summary: str = "") -> str:
+    """Generate a short summary of notable events this tick. Returns '' if nothing notable."""
+    notable = []
     for a in actions:
-        msg = a.get("message") or a.get("parameters", {}).get("content", "")
-        msg_part = f': "{msg[:80]}"' if msg else ""
-        lines.append(f"  {a['agent_name']}: {a['action']}{msg_part}")
+        if not a.get("is_alive", True):
+            notable.append(f"{a['agent_name']} died (energy {a.get('energy', 0):.1f})")
+        elif a["action"] == "communicate":
+            msg = a.get("message") or a.get("parameters", {}).get("content", "")
+            notable.append(f"{a['agent_name']} said: \"{msg[:80]}\"")
+        elif a["action"] == "interact":
+            itype = a.get("parameters", {}).get("type", "")
+            notable.append(f"{a['agent_name']} {itype or 'interacted'}")
+        elif a.get("llm_error"):
+            notable.append(f"{a['agent_name']} errored")
 
+    if not notable:
+        return ""
+
+    prev_context = f"Last tick: {prev_summary}\n" if prev_summary else ""
     prompt = (
-        f"Tick {tick} of a life simulation. Here is what each agent did:\n"
-        + "\n".join(lines)
-        + "\n\nWrite a single short sentence (max 25 words) summarising the social mood and key moment. "
-        "Be vivid and observational, like a narrator. No bullet points, no labels."
+        f"{prev_context}"
+        f"Notable events this tick:\n" + "\n".join(f"- {e}" for e in notable) +
+        "\n\nWrite 1-2 short bullet points (each max 10 words) summarising only the most important events. "
+        "Use plain language. No intro, no labels, just the bullets."
     )
 
     cmd = [

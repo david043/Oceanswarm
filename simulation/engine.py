@@ -26,7 +26,9 @@ class SimulationEngine:
     def __init__(self) -> None:
         self._scheduler = AsyncIOScheduler()
         self._lock = asyncio.Lock()
-        self._broadcast_callbacks: list[Any] = []  # WebSocket notifiers
+        self._broadcast_callbacks: list[Any] = []  # WebSocket notifiers (dict)
+        self._text_callbacks: list[Any] = []        # WebSocket notifiers (plain text)
+        self._last_narrative: str = ""
 
     # ------------------------------------------------------------------
     # Public control interface
@@ -60,8 +62,12 @@ class SimulationEngine:
         return await self._run_tick()
 
     def register_broadcast(self, callback) -> None:
-        """Register a coroutine callback invoked after each tick with the tick summary."""
+        """Register a coroutine callback invoked after each tick with the tick summary dict."""
         self._broadcast_callbacks.append(callback)
+
+    def register_text_broadcast(self, callback) -> None:
+        """Register a coroutine callback for plain-text debug messages."""
+        self._text_callbacks.append(callback)
 
     # ------------------------------------------------------------------
     # Internal tick logic
@@ -69,22 +75,46 @@ class SimulationEngine:
 
     async def _run_tick(self) -> dict:
         async with self._lock:
+            # Transaction 1 (short): advance tick and read state, then release DB lock
+            # before LLM calls so stop_clock() can always write is_running=False.
             async with AsyncSessionLocal() as db:
                 tick_number = await self._advance_tick(db)
                 agents = await self._load_alive_agents(db)
                 active_events = await self._load_active_events(db)
                 event_descriptions = [e.description for e in active_events]
-
-                if not agents:
-                    return {"tick": tick_number, "agents_processed": 0, "actions": []}
-
-                agent_dicts = [self._agent_to_dict(a) for a in agents]
                 last_messages = await self._load_last_messages(db, tick_number - 1)
-                results = await self._process_agents(agent_dicts, event_descriptions, tick_number, last_messages, db)
-
                 await db.commit()
 
-        narrative = await generate_tick_summary(tick_number, results)
+            await self._notify(f"[tick {tick_number}] started — {len(agents)} agent(s) alive")
+
+            if not agents:
+                return {"tick": tick_number, "agents_processed": 0, "actions": []}
+
+            agent_dicts = [self._agent_to_dict(a) for a in agents]
+
+            # LLM calls run here without holding the DB write lock
+            await self._notify(f"[tick {tick_number}] calling LLM for {len(agent_dicts)} agent(s)…")
+            raw_results = await self._process_agents(agent_dicts, event_descriptions, tick_number, last_messages)
+
+            errors = [r for r in raw_results if r["summary"].get("llm_error")]
+            ok = len(raw_results) - len(errors)
+            status = f"{ok}/{len(raw_results)} responses received"
+            if errors:
+                status += f", {len(errors)} error(s)"
+            await self._notify(f"[tick {tick_number}] {status}")
+
+            # Transaction 2 (short): persist all agent updates and logs
+            async with AsyncSessionLocal() as db:
+                for r in raw_results:
+                    await self._persist_agent_update(db, r["updated"])
+                    if r["target_update"] is not None:
+                        await self._persist_agent_update(db, r["target_update"])
+                    await self._log_tick_action(db, tick_number, r["agent_id"], r["action_result"])
+                await db.commit()
+
+        results = [r["summary"] for r in raw_results]
+        narrative = await generate_tick_summary(tick_number, results, self._last_narrative)
+        self._last_narrative = narrative
         summary = {"tick": tick_number, "agents_processed": len(results), "actions": results, "narrative": narrative}
         await self._broadcast(summary)
         logger.info("Tick %d complete — %d agents processed", tick_number, len(results))
@@ -96,10 +126,9 @@ class SimulationEngine:
         event_descriptions: list[str],
         tick: int,
         last_messages: dict[str, str],
-        db: AsyncSession,
     ) -> list[dict]:
         tasks = [
-            self._process_single_agent(agent, agent_dicts, event_descriptions, tick, last_messages, db)
+            self._process_single_agent(agent, agent_dicts, event_descriptions, tick, last_messages)
             for agent in agent_dicts
         ]
         return await asyncio.gather(*tasks)
@@ -111,7 +140,6 @@ class SimulationEngine:
         event_descriptions: list[str],
         tick: int,
         last_messages: dict[str, str],
-        db: AsyncSession,
     ) -> dict:
         nearby_raw = find_nearby_agents(agent["id"], agent["x"], agent["y"], all_agents)
         nearby = [
@@ -146,22 +174,32 @@ class SimulationEngine:
         updated["memory"] = add_memory(agent["memory"] or [], action_result.memory_update)
         updated["internal_state"] = action_result.internal_state or agent["internal_state"]
 
-        await self._persist_agent_update(db, updated)
-        if target_update is not None:
-            await self._persist_agent_update(db, target_update)
-        await self._log_tick_action(db, tick, agent["id"], action_result)
+        # Set status: dead takes priority, then idle if LLM failed, else alive
+        if not updated["is_alive"]:
+            updated["status"] = "dead"
+        elif llm_error:
+            updated["status"] = "idle"
+        else:
+            updated["status"] = "alive"
 
         return {
             "agent_id": agent["id"],
-            "agent_name": agent["name"],
-            "x": updated["x"],
-            "y": updated["y"],
-            "energy": updated["energy"],
-            "is_alive": updated["is_alive"],
-            "action": action_result.action,
-            "parameters": action_result.parameters,
-            "message": action_result.message,
-            "llm_error": llm_error,
+            "updated": updated,
+            "target_update": target_update,
+            "action_result": action_result,
+            "summary": {
+                "agent_id": agent["id"],
+                "agent_name": agent["name"],
+                "x": updated["x"],
+                "y": updated["y"],
+                "energy": updated["energy"],
+                "is_alive": updated["is_alive"],
+                "status": updated["status"],
+                "action": action_result.action,
+                "parameters": action_result.parameters,
+                "message": action_result.message,
+                "llm_error": llm_error,
+            },
         }
 
     # ------------------------------------------------------------------
@@ -196,6 +234,7 @@ class SimulationEngine:
                 y=data["y"],
                 energy=data["energy"],
                 is_alive=data["is_alive"],
+                status=data.get("status", "alive"),
                 inventory=data["inventory"],
                 memory=data["memory"],
                 internal_state=data["internal_state"],
@@ -253,6 +292,14 @@ class SimulationEngine:
             except Exception as exc:
                 logger.warning("Broadcast callback failed: %s", exc)
 
+    async def _notify(self, text: str) -> None:
+        """Send a plain-text debug message to all registered text listeners."""
+        for cb in self._text_callbacks:
+            try:
+                await cb(text)
+            except Exception as exc:
+                logger.warning("Text broadcast failed: %s", exc)
+
     @staticmethod
     def _agent_to_dict(agent: AgentModel) -> dict:
         return {
@@ -265,6 +312,7 @@ class SimulationEngine:
             "y": agent.y,
             "energy": agent.energy,
             "is_alive": agent.is_alive,
+            "status": agent.status or "alive",
             "inventory": agent.inventory or {},
             "memory": agent.memory or [],
             "internal_state": agent.internal_state or {},

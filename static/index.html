@@ -26,7 +26,8 @@
       color: var(--text);
       font-family: 'Inter', system-ui, sans-serif;
       font-size: 13px;
-      height: 100vh;
+      height: 100vh;         /* fallback for older browsers */
+      height: 100dvh;        /* dvh tracks visible area on iOS Safari / iPad */
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -74,15 +75,23 @@
       overflow: hidden;
     }
 
+    /* Narrower panels on tablet / small screens */
+    @media (max-width: 900px) {
+      main { grid-template-columns: 180px 1fr 200px; }
+    }
+    @media (max-width: 700px) {
+      main { grid-template-columns: 160px 1fr 180px; }
+    }
+
     /* ── Panels ── */
     .panel {
       background: var(--panel);
       border-right: 1px solid var(--border);
       overflow-y: auto;
-      padding: 12px;
+      padding: 10px 12px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 10px;
     }
     .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
 
@@ -130,13 +139,17 @@
       color: var(--text);
       padding: 5px 8px;
       font-size: 12px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       outline: none;
     }
     input:focus, textarea:focus, select:focus {
       border-color: var(--accent);
     }
-    textarea { resize: vertical; min-height: 48px; }
+    textarea { resize: vertical; min-height: 40px; }
+
+    /* Age + Gender side by side */
+    .field-row { display: flex; gap: 6px; }
+    .field-row label { flex: 1; margin-bottom: 0; }
 
     /* ── Event chips ── */
     .event-chip {
@@ -299,6 +312,7 @@
       border-radius: 10px;
     }
     .badge-alive  { background: #14532d; color: var(--green); }
+    .badge-idle   { background: #3b2f0a; color: var(--yellow); }
     .badge-dead   { background: #3f1d1d; color: var(--red); }
 
     /* ── Activity log ── */
@@ -317,6 +331,8 @@
     }
     #log .log-entry { border-bottom: 1px solid #1a1d26; padding-bottom: 6px; margin-bottom: 6px; }
     #log .log-tick  { color: var(--accent2); font-weight: 700; }
+    #log .log-debug { color: var(--dim); font-style: italic; }
+    #log .log-error { color: var(--red); }
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 4px; }
@@ -387,20 +403,22 @@
       </label>
     </div>
 
-    <hr style="border-color:var(--border)" />
+    <hr style="border-color:var(--border);margin:2px 0" />
 
     <div>
       <div class="section-title">Spawn Agent</div>
       <label>Name<input type="text" id="new-name" placeholder="e.g. Mira" /></label>
-      <label>Age<input type="number" id="new-age" value="25" min="1" max="99" /></label>
-      <label>Gender
-        <select id="new-gender">
-          <option>unknown</option>
-          <option>female</option>
-          <option>male</option>
-          <option>non-binary</option>
-        </select>
-      </label>
+      <div class="field-row">
+        <label>Age<input type="number" id="new-age" value="25" min="1" max="99" /></label>
+        <label>Gender
+          <select id="new-gender">
+            <option>unknown</option>
+            <option>female</option>
+            <option>male</option>
+            <option>non-binary</option>
+          </select>
+        </label>
+      </div>
       <label>Personality
         <textarea id="new-personality" placeholder="e.g. Curious and friendly explorer..."></textarea>
       </label>
@@ -408,7 +426,7 @@
       <div id="spawn-status" style="margin-top:6px;font-size:11px;min-height:16px"></div>
     </div>
 
-    <hr style="border-color:var(--border)" />
+    <hr style="border-color:var(--border);margin:2px 0" />
 
     <div>
       <div class="section-title">World Events</div>
@@ -440,7 +458,7 @@
       <div id="agent-list" style="flex:1;overflow-y:auto;min-height:0"></div>
     </div>
 
-    <div style="display:flex;flex-direction:column;flex:1;min-height:120px">
+    <div style="display:flex;flex-direction:column;flex:1;min-height:120px;overflow:hidden">
       <div class="section-title">Activity Log</div>
       <div id="log"></div>
     </div>
@@ -935,7 +953,7 @@
               <span class="agent-dot" style="background:${aCol}"></span>
               <span class="agent-name">${a.name}</span>
             </div>
-            <span class="badge ${a.is_alive ? 'badge-alive' : 'badge-dead'}">${a.is_alive ? 'alive' : 'dead'}</span>
+            <span class="badge badge-${a.status || (a.is_alive ? 'alive' : 'dead')}">${a.status || (a.is_alive ? 'alive' : 'dead')}</span>
           </div>
           <div class="energy-bar">
             <div class="energy-fill" style="width:${pct}%;background:${eCol}"></div>
@@ -999,9 +1017,12 @@
     div.className = 'log-entry';
     div.innerHTML = text
       .split('\n')
-      .map(line => line.startsWith('Tick ')
-        ? `<span class="log-tick">${escHtml(line)}</span>`
-        : escHtml(line))
+      .map(line => {
+        if (line.startsWith('Tick '))  return `<span class="log-tick">${escHtml(line)}</span>`;
+        if (line.startsWith('[tick ')) return `<span class="log-debug">${escHtml(line)}</span>`;
+        if (line.startsWith('ERROR')) return `<span class="log-error">${escHtml(line)}</span>`;
+        return escHtml(line);
+      })
       .join('<br>');
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
@@ -1039,7 +1060,10 @@
     try {
       await api('POST', '/simulation/stop');
       await fetchStatus();
-    } catch(e) { console.error('Stop failed:', e); }
+    } catch(e) {
+      console.error('Stop failed:', e);
+      appendLog('ERROR: Stop failed — ' + e.message);
+    }
   };
 
   document.getElementById('btn-tick').onclick = async () => {

@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(app: FastAPI):
     await init_db()
     engine.register_broadcast(manager.broadcast)
+    engine.register_text_broadcast(manager.broadcast_text)
     yield
 
 

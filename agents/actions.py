@@ -40,7 +40,7 @@ def consume_from_inventory(agent_data: dict) -> dict:
 def check_death(agent_data: dict) -> dict:
     """Mark agent as permanently dead if energy has reached zero."""
     if agent_data["energy"] <= 0.0:
-        return {**agent_data, "is_alive": False}
+        return {**agent_data, "is_alive": False, "status": "dead"}
     return agent_data
 
 

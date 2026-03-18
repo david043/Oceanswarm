@@ -23,6 +23,7 @@ class AgentModel(Base):
     # Vitals
     energy: Mapped[float] = mapped_column(Float, default=100.0)
     is_alive: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String, default="alive")  # alive | idle | dead
 
     # JSON fields
     inventory: Mapped[dict] = mapped_column(JSON, default=dict)
