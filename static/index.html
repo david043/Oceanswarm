@@ -910,6 +910,13 @@
     }
   });
 
+  canvas.addEventListener('touchcancel', e => {
+    for (const t of e.changedTouches) delete touches[t.identifier];
+    lastPinchDist = null;
+    isDragging    = false;
+    touchMoved    = false;
+  });
+
   // ── Zoom control buttons ──────────────────────────────────────
   document.getElementById('btn-zoom-in').onclick    = () => zoomBy(1.4);
   document.getElementById('btn-zoom-out').onclick   = () => zoomBy(1 / 1.4);
