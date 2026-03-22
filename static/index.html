@@ -363,6 +363,19 @@
       border-top: 1px solid var(--border);
       padding-top: 4px;
     }
+    .ail-memories {
+      margin-top: 6px;
+      border-top: 1px solid var(--border);
+      padding-top: 5px;
+    }
+    .ail-memories .section-title { margin-bottom: 4px; }
+    .ail-memory-item {
+      color: var(--dim);
+      padding: 2px 0;
+      border-bottom: 1px solid #1a1d26;
+      line-height: 1.5;
+    }
+    .ail-memory-item:last-child { border-bottom: none; }
 
     /* ── Agent search bar ── */
     #agent-search { margin-bottom: 6px; }
@@ -950,6 +963,13 @@
         const invFull = Object.entries(a.inventory || {}).map(([k,v]) => `${k}: ${v}`).join(', ') || 'empty';
         const personality = a.personality_prompt
           ? `<div class="ail-desc">${escHtml(a.personality_prompt)}</div>` : '';
+        const memories = (a.memory || []);
+        const memoriesHtml = memories.length
+          ? `<div class="ail-memories">
+               <div class="section-title">Memories</div>
+               ${memories.map(m => `<div class="ail-memory-item">${escHtml(m)}</div>`).join('')}
+             </div>`
+          : '';
         inlineDetail = `
           <div class="agent-inline-detail">
             <div class="ail-row"><span>😐 Mood</span><span>${mood}</span></div>
@@ -959,6 +979,7 @@
             <div class="ail-row"><span>⚧ Gender</span><span>${a.gender ?? '—'}</span></div>
             <div class="ail-row"><span>🎒 Inventory</span><span>${invFull}</span></div>
             ${personality}
+            ${memoriesHtml}
           </div>`;
       }
 
