@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     engine.register_broadcast(manager.broadcast)
     engine.register_text_broadcast(manager.broadcast_text)
+    await engine.fix_overlapping_agents()
     yield
 
 

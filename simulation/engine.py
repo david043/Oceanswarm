@@ -17,7 +17,7 @@ from agents.schemas import AgentContext, NearbyAgent
 from config import settings
 from db.database import AsyncSessionLocal
 from db.models import AgentModel, SimulationStateModel, TickLogModel, WorldEventModel
-from simulation.world import find_nearby_agents
+from simulation.world import find_nearby_agents, spread_overlapping_agents
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,20 @@ class SimulationEngine:
     # ------------------------------------------------------------------
     # Public control interface
     # ------------------------------------------------------------------
+
+    async def fix_overlapping_agents(self) -> None:
+        """Move any agents that are too close to each other apart."""
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(AgentModel).where(AgentModel.is_alive == True))
+            agents = list(result.scalars().all())
+            moves = spread_overlapping_agents([(a.id, a.x, a.y) for a in agents])
+            if not moves:
+                return
+            for agent in agents:
+                if agent.id in moves:
+                    agent.x, agent.y = moves[agent.id]
+            await db.commit()
+            logger.info("Spread %d overlapping agent(s)", len(moves))
 
     async def start_clock(self, interval_seconds: int | None = None) -> None:
         interval = interval_seconds or settings.tick_interval_seconds
