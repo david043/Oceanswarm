@@ -57,5 +57,7 @@ class AgentRead(BaseModel):
     inventory: dict
     memory: list[str]
     internal_state: dict
+    last_action: str | None = None
+    last_action_params: dict = {}
 
     model_config = {"from_attributes": True}

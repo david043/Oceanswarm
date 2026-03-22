@@ -30,6 +30,10 @@ class AgentModel(Base):
     memory: Mapped[list] = mapped_column(JSON, default=list)        # last N memories
     internal_state: Mapped[dict] = mapped_column(JSON, default=dict) # mood, goal, etc.
 
+    # Last action taken (for UI display)
+    last_action: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_action_params: Mapped[dict] = mapped_column(JSON, default=dict)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

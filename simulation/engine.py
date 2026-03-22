@@ -187,6 +187,8 @@ class SimulationEngine:
         )
         updated["memory"] = add_memory(agent["memory"] or [], action_result.memory_update)
         updated["internal_state"] = action_result.internal_state or agent["internal_state"]
+        updated["last_action"] = action_result.action
+        updated["last_action_params"] = action_result.parameters or {}
 
         # Set status: dead takes priority, then idle if LLM failed, else alive
         if not updated["is_alive"]:
@@ -252,6 +254,8 @@ class SimulationEngine:
                 inventory=data["inventory"],
                 memory=data["memory"],
                 internal_state=data["internal_state"],
+                last_action=data.get("last_action"),
+                last_action_params=data.get("last_action_params", {}),
             )
         )
 

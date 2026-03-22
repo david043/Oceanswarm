@@ -25,8 +25,13 @@ async def get_db() -> AsyncSession:
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migration: add status column if it doesn't exist yet
-        try:
-            await conn.execute(text("ALTER TABLE agents ADD COLUMN status VARCHAR NOT NULL DEFAULT 'alive'"))
-        except Exception:
-            pass  # Column already exists
+        # Migrations: add columns if they don't exist yet
+        for stmt in [
+            "ALTER TABLE agents ADD COLUMN status VARCHAR NOT NULL DEFAULT 'alive'",
+            "ALTER TABLE agents ADD COLUMN last_action VARCHAR",
+            "ALTER TABLE agents ADD COLUMN last_action_params JSON DEFAULT '{}'",
+        ]:
+            try:
+                await conn.execute(text(stmt))
+            except Exception:
+                pass  # Column already exists
