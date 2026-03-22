@@ -34,6 +34,9 @@ class AgentModel(Base):
     last_action: Mapped[str | None] = mapped_column(String, nullable=True)
     last_action_params: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    # Position history for path rendering (last 100 ticks)
+    position_history: Mapped[list] = mapped_column(JSON, default=list)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

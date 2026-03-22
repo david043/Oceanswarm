@@ -664,6 +664,22 @@
       ctx.stroke();
     }
 
+    // Agent paths
+    for (const a of agents) {
+      const hist = a.position_history;
+      if (!hist || hist.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(hist[0][0] * CELL + CELL / 2, hist[0][1] * CELL + CELL / 2);
+      for (let i = 1; i < hist.length; i++) {
+        ctx.lineTo(hist[i][0] * CELL + CELL / 2, hist[i][1] * CELL + CELL / 2);
+      }
+      const hue = agentHue(a.id);
+      ctx.strokeStyle = `hsla(${hue}, 75%, 62%, 0.35)`;
+      ctx.lineWidth   = Math.max(0.3, 0.8 / view.scale);
+      ctx.lineJoin    = 'round';
+      ctx.stroke();
+    }
+
     // Agents
     for (const a of agents) {
       const px    = a.x * CELL + CELL / 2;

@@ -30,6 +30,7 @@ async def init_db() -> None:
             "ALTER TABLE agents ADD COLUMN status VARCHAR NOT NULL DEFAULT 'alive'",
             "ALTER TABLE agents ADD COLUMN last_action VARCHAR",
             "ALTER TABLE agents ADD COLUMN last_action_params JSON DEFAULT '{}'",
+            "ALTER TABLE agents ADD COLUMN position_history JSON DEFAULT '[]'",
         ]:
             try:
                 await conn.execute(text(stmt))

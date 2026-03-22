@@ -59,5 +59,6 @@ class AgentRead(BaseModel):
     internal_state: dict
     last_action: str | None = None
     last_action_params: dict = {}
+    position_history: list = []
 
     model_config = {"from_attributes": True}
