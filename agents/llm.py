@@ -26,6 +26,22 @@ AGENT_RESPONSE_SCHEMA = json.dumps({
                 "goal": {"type": "string"},
             },
         },
+        "relationship_update": {
+            "type": ["object", "null"],
+            "description": (
+                "Optional: explicitly form or end a dynamic relationship. "
+                "Family/mate bonds are immutable and will be ignored here."
+            ),
+            "properties": {
+                "action": {"type": "string", "enum": ["form", "end"]},
+                "target_id": {"type": "string"},
+                "type": {
+                    "type": "string",
+                    "enum": ["friend", "enemy", "ally", "rival", "mentor", "leader", "business_partner"],
+                },
+            },
+            "required": ["action", "target_id", "type"],
+        },
     },
     "required": ["action", "parameters", "internal_state"],
 })
@@ -36,6 +52,12 @@ Act in character at all times based on your personality, memories, and current s
 You can only perceive and interact with agents nearby you.
 Do NOT reference anything outside the simulation.
 Respond ONLY with valid JSON matching the provided schema.
+
+Keep all text fields short and natural:
+- mood: max 20 words describing your current emotional state (e.g. "nervous and low on energy, distrustful of the strangers gathering nearby")
+- goal: max 20 words describing your current intention (e.g. "gather water before energy runs out, then find a safe place to rest")
+- message: plain speech, max 50 words (natural conversation, up to a few sentences)
+- memory_update: 1 short sentence summarising what just happened
 """
 
 
@@ -54,12 +76,16 @@ def _available_directions(x: int, y: int) -> list[str]:
 
 
 def _build_user_prompt(ctx: AgentContext) -> str:
-    nearby = "\n".join(
-        f"  - {a.name} (id: {a.id}, distance: {a.distance:.1f}"
-        + (f', last said: "{a.last_message}"' if a.last_message else "")
-        + ")"
-        for a in ctx.nearby_agents
-    ) or "  (none)"
+    def _nearby_line(a) -> str:
+        parts = [f"  - {a.name} (id: {a.id}, distance: {a.distance:.1f}"]
+        if a.relationship:
+            parts.append(f", {a.relationship.label}")
+        if a.last_message:
+            parts.append(f', last said: "{a.last_message}"')
+        parts.append(")")
+        return "".join(parts)
+
+    nearby = "\n".join(_nearby_line(a) for a in ctx.nearby_agents) or "  (none)"
 
     events = "\n".join(f"  - {e}" for e in ctx.world_events) or "  (none)"
     memories = "\n".join(f"  - {m}" for m in ctx.memory) or "  (none)"
@@ -86,11 +112,15 @@ Nearby agents:
 {nearby}
 
 Decide your next action. Valid actions:
-  move        -> parameters: {{"direction": "{dirs}"}}  (available from your position)
+  move        -> parameters: {{"direction": "{dirs}", "steps": 1-10}}  (available from your position)
   communicate -> parameters: {{"target_id": "<id>", "content": "<text>"}}
   interact    -> parameters: {{"target_id": "<id>", "type": "trade|help|fight"}}
   gather      -> parameters: {{"resource": "food|water|tools"}}
   idle        -> parameters: {{}}
+
+You may also optionally include a relationship_update to form or end a relationship:
+  relationship_update: {{"action": "form"|"end", "target_id": "<id>", "type": "friend|enemy|ally|rival|mentor|leader|business_partner"}}
+  Note: family and mate bonds are permanent and cannot be changed this way.
 """
 
 
