@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
@@ -29,6 +29,52 @@ class AgentModel(Base):
     inventory: Mapped[dict] = mapped_column(JSON, default=dict)
     memory: Mapped[list] = mapped_column(JSON, default=list)        # last N memories
     internal_state: Mapped[dict] = mapped_column(JSON, default=dict) # mood, goal, etc.
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class RelationshipModel(Base):
+    """
+    Directed edge in the agent relationship graph.
+    from_agent_id → to_agent_id with a given type and strength.
+
+    Family relationships (is_family=True) are immutable — set at agent
+    creation and never modified or deleted by the simulation.
+
+    Dynamic relationships (friend, enemy, ally, …) can be formed or ended
+    by agents via their LLM actions, and their strength shifts automatically
+    based on interactions (fight, help, trade).
+
+    Unique constraint: one edge per (from_agent, to_agent, type) pair.
+    An agent may have multiple relationship types with the same other agent
+    (e.g. friend AND business_partner).
+    """
+
+    __tablename__ = "relationships"
+    __table_args__ = (
+        UniqueConstraint("from_agent_id", "to_agent_id", "type", name="uq_relationship"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    from_agent_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    to_agent_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # "friend" | "enemy" | "ally" | "rival" | "mentor" | "leader" | "business_partner"
+    # | "family" | "mate"
+    type: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Only used when type == "family": "parent_of" | "child_of" | "sibling_of"
+    sub_role: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # -100 (bitter enemies) … 0 (neutral) … +100 (deepest bond)
+    strength: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Immutable flag — True for family / mate bonds set at creation time
+    is_family: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    interaction_count: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

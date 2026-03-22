@@ -66,6 +66,27 @@ def test_move_clamps_to_world_boundary():
     assert result["x"] == 0
 
 
+def test_move_multiple_steps():
+    result = resolve_move(BASE_AGENT, {"direction": "north", "steps": 5})
+    assert result["y"] == 45
+
+
+def test_move_steps_clamped_at_10():
+    result = resolve_move(BASE_AGENT, {"direction": "south", "steps": 99})
+    assert result["y"] == 60  # 50 + 10
+
+
+def test_move_steps_minimum_1():
+    result = resolve_move(BASE_AGENT, {"direction": "east", "steps": 0})
+    assert result["x"] == 51  # 50 + 1
+
+
+def test_move_steps_clamps_at_world_boundary():
+    agent = {**BASE_AGENT, "x": 5, "y": 5}
+    result = resolve_move(agent, {"direction": "north", "steps": 10})
+    assert result["y"] == 0
+
+
 # ---------------------------------------------------------------------------
 # apply_action (general)
 # ---------------------------------------------------------------------------

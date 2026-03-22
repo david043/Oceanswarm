@@ -5,9 +5,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents.schemas import AgentCreate, AgentRead
 from db.database import get_db
 from db.models import AgentModel
+from db.relationships import create_family_link
 from simulation.world import random_spawn_position
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+_FAMILY_INVERSE: dict[str, str] = {
+    "parent_of":  "child_of",
+    "child_of":   "parent_of",
+    "sibling_of": "sibling_of",
+    "mate":       "mate",
+}
 
 
 @router.post("/", response_model=AgentRead, status_code=201)
@@ -28,6 +36,35 @@ async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db))
         y=y,
     )
     db.add(agent)
+    await db.flush()  # get agent.id before relationships
+
+    # Create immutable family/mate links
+    for link in payload.family_links:
+        role = link.role
+        if role not in _FAMILY_INVERSE:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid family role '{role}'. Must be one of: {list(_FAMILY_INVERSE)}",
+            )
+
+        # Verify the referenced agent exists
+        result = await db.execute(select(AgentModel).where(AgentModel.id == link.agent_id))
+        other = result.scalar_one_or_none()
+        if other is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{link.agent_id}' not found — cannot create family link",
+            )
+
+        rel_type = "mate" if role == "mate" else "family"
+        sub_role = role if role != "mate" else None
+        inverse_sub_role = _FAMILY_INVERSE[role] if role != "mate" else None
+
+        # A → B
+        await create_family_link(db, agent.id, link.agent_id, rel_type, sub_role)
+        # B → A (reciprocal)
+        await create_family_link(db, link.agent_id, agent.id, rel_type, inverse_sub_role)
+
     await db.commit()
     await db.refresh(agent)
     return agent

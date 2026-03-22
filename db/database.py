@@ -30,3 +30,5 @@ async def init_db() -> None:
             await conn.execute(text("ALTER TABLE agents ADD COLUMN status VARCHAR NOT NULL DEFAULT 'alive'"))
         except Exception:
             pass  # Column already exists
+        # Migration: relationships table is created by create_all above (new installs).
+        # No manual migration needed for existing DBs — create_all is idempotent for new tables.

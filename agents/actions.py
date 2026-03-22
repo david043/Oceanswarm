@@ -49,15 +49,17 @@ def resolve_move(agent_data: dict, parameters: dict) -> dict:
     if direction not in VALID_DIRECTIONS:
         return agent_data
 
+    steps = max(1, min(10, int(parameters.get("steps", 1))))
+
     x, y = agent_data["x"], agent_data["y"]
     if direction == "north":
-        y = max(0, y - 1)
+        y = max(0, y - steps)
     elif direction == "south":
-        y = min(settings.world_height - 1, y + 1)
+        y = min(settings.world_height - 1, y + steps)
     elif direction == "west":
-        x = max(0, x - 1)
+        x = max(0, x - steps)
     elif direction == "east":
-        x = min(settings.world_width - 1, x + 1)
+        x = min(settings.world_width - 1, x + steps)
 
     return {**agent_data, "x": x, "y": y}
 

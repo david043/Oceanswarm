@@ -13,13 +13,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agents.actions import apply_action
 from agents.llm import call_llm, generate_tick_summary
 from agents.memory import add_memory
+from agents.relationships import build_relationship_index
 from agents.schemas import AgentContext, NearbyAgent
 from config import settings
 from db.database import AsyncSessionLocal
 from db.models import AgentModel, SimulationStateModel, TickLogModel, WorldEventModel
+from db.relationships import (
+    INTERACTION_STRENGTH_DELTA,
+    adjust_strength,
+    end_relationship,
+    form_relationship,
+    get_relationships_for_agents,
+)
 from simulation.world import find_nearby_agents
 
 logger = logging.getLogger(__name__)
+
+
+def _pick_primary_relationship(summaries):
+    """
+    Given a list of RelationshipSummary for the same (from, to) pair,
+    return the one with the highest absolute strength (most emotionally salient).
+    Returns None if the list is empty.
+    """
+    if not summaries:
+        return None
+    return max(summaries, key=lambda r: abs(r.strength))
 
 
 class SimulationEngine:
@@ -41,12 +60,14 @@ class SimulationEngine:
         else:
             self._scheduler.start()
 
+        from datetime import datetime as dt
         self._scheduler.add_job(
             self._run_tick,
             "interval",
             seconds=interval,
             id="tick_job",
             replace_existing=True,
+            next_run_time=dt.now(),  # fire immediately on start
         )
         await self._set_running(True, interval)
         logger.info("Clock-based ticks started (interval=%ds)", interval)
@@ -83,6 +104,9 @@ class SimulationEngine:
                 active_events = await self._load_active_events(db)
                 event_descriptions = [e.description for e in active_events]
                 last_messages = await self._load_last_messages(db, tick_number - 1)
+                agent_ids = [a.id for a in agents]
+                rel_rows = await get_relationships_for_agents(db, agent_ids)
+                rel_index = build_relationship_index(rel_rows)
                 await db.commit()
 
             await self._notify(f"[tick {tick_number}] started — {len(agents)} agent(s) alive")
@@ -94,7 +118,9 @@ class SimulationEngine:
 
             # LLM calls run here without holding the DB write lock
             await self._notify(f"[tick {tick_number}] calling LLM for {len(agent_dicts)} agent(s)…")
-            raw_results = await self._process_agents(agent_dicts, event_descriptions, tick_number, last_messages)
+            raw_results = await self._process_agents(
+                agent_dicts, event_descriptions, tick_number, last_messages, rel_index
+            )
 
             errors = [r for r in raw_results if r["summary"].get("llm_error")]
             ok = len(raw_results) - len(errors)
@@ -103,13 +129,14 @@ class SimulationEngine:
                 status += f", {len(errors)} error(s)"
             await self._notify(f"[tick {tick_number}] {status}")
 
-            # Transaction 2 (short): persist all agent updates and logs
+            # Transaction 2 (short): persist all agent updates, logs, and relationship changes
             async with AsyncSessionLocal() as db:
                 for r in raw_results:
                     await self._persist_agent_update(db, r["updated"])
                     if r["target_update"] is not None:
                         await self._persist_agent_update(db, r["target_update"])
                     await self._log_tick_action(db, tick_number, r["agent_id"], r["action_result"])
+                    await self._apply_relationship_changes(db, r)
                 await db.commit()
 
         results = [r["summary"] for r in raw_results]
@@ -126,9 +153,10 @@ class SimulationEngine:
         event_descriptions: list[str],
         tick: int,
         last_messages: dict[str, str],
+        rel_index: dict,
     ) -> list[dict]:
         tasks = [
-            self._process_single_agent(agent, agent_dicts, event_descriptions, tick, last_messages)
+            self._process_single_agent(agent, agent_dicts, event_descriptions, tick, last_messages, rel_index)
             for agent in agent_dicts
         ]
         return await asyncio.gather(*tasks)
@@ -140,6 +168,7 @@ class SimulationEngine:
         event_descriptions: list[str],
         tick: int,
         last_messages: dict[str, str],
+        rel_index: dict,
     ) -> dict:
         nearby_raw = find_nearby_agents(agent["id"], agent["x"], agent["y"], all_agents)
         nearby = [
@@ -148,6 +177,8 @@ class SimulationEngine:
                 name=a["name"],
                 distance=a["distance"],
                 last_message=last_messages.get(a["id"]),
+                # Pick the strongest relationship (by abs strength) for display
+                relationship=_pick_primary_relationship(rel_index.get((agent["id"], a["id"]), [])),
             )
             for a in nearby_raw
         ]
@@ -187,6 +218,17 @@ class SimulationEngine:
             "updated": updated,
             "target_update": target_update,
             "action_result": action_result,
+            # Carry interaction info for relationship strength adjustment
+            "interact_target_id": (
+                action_result.parameters.get("target_id")
+                if action_result.action == "interact"
+                else None
+            ),
+            "interact_type": (
+                action_result.parameters.get("type", "")
+                if action_result.action == "interact"
+                else None
+            ),
             "summary": {
                 "agent_id": agent["id"],
                 "agent_name": agent["name"],
@@ -201,6 +243,38 @@ class SimulationEngine:
                 "llm_error": llm_error,
             },
         }
+
+    async def _apply_relationship_changes(self, db: AsyncSession, result: dict) -> None:
+        """
+        After each agent's action, apply two types of relationship changes:
+        1. Automatic strength adjustments from fight/help/trade interactions.
+        2. Explicit form/end requests from the LLM's relationship_update field.
+        Family relationships are always protected from modification.
+        """
+        agent_id = result["agent_id"]
+        action_result = result["action_result"]
+
+        # 1. Auto strength adjustment for interact actions
+        interact_target = result.get("interact_target_id")
+        interact_type = result.get("interact_type")
+        if interact_target and interact_type in INTERACTION_STRENGTH_DELTA:
+            delta = INTERACTION_STRENGTH_DELTA[interact_type]
+            # Adjust from both directions (both agents are affected)
+            await adjust_strength(db, agent_id, interact_target, delta)
+            await adjust_strength(db, interact_target, agent_id, delta)
+
+        # 2. Explicit LLM relationship update
+        rel_update = action_result.relationship_update
+        if rel_update is None:
+            return
+
+        target_id = rel_update.target_id
+        rel_type = rel_update.type
+
+        if rel_update.action == "form":
+            await form_relationship(db, agent_id, target_id, rel_type)
+        elif rel_update.action == "end":
+            await end_relationship(db, agent_id, target_id, rel_type)
 
     # ------------------------------------------------------------------
     # DB helpers
