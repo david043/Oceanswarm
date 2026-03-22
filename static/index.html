@@ -657,7 +657,7 @@
 
       // Name label at medium-high zoom
       if (view.scale >= 2) {
-        const fontSize = Math.min(Math.max(6 / view.scale, 2), 5);
+        const fontSize = Math.min(Math.max(9 / view.scale, 3), 7);
         ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`;
         ctx.fillStyle = a.is_alive ? color : '#6b7280';
         ctx.textAlign = 'center';
