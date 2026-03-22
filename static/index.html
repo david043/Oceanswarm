@@ -67,6 +67,23 @@
     .dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
     #tick-display { color: var(--dim); margin-left: auto; font-size: 12px; }
 
+    /* ── Narrative strip ── */
+    #narrative-strip {
+      display: none;
+      padding: 6px 20px;
+      background: #0d1120;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--accent2);
+      line-height: 1.6;
+      flex-shrink: 0;
+    }
+    #narrative-strip .narrative-tick {
+      font-size: 10px;
+      color: var(--dim);
+      margin-right: 8px;
+    }
+
     /* ── Main layout ── */
     main {
       display: grid;
@@ -385,6 +402,8 @@
     <span style="color:var(--dim)">agents alive</span>
   </div>
 </header>
+
+<div id="narrative-strip"></div>
 
 <main>
 
@@ -1056,6 +1075,12 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  function showNarrative(tick, text) {
+    const strip = document.getElementById('narrative-strip');
+    strip.style.display = 'block';
+    strip.innerHTML = `<span class="narrative-tick">Tick ${tick}</span>${escHtml(text)}`;
+  }
+
   function appendLog(text) {
     const m = text.match(/^Tick (\d+)/);
     generalLogEntries.push({ text, tick: m ? parseInt(m[1]) : null });
@@ -1096,7 +1121,13 @@
     ws.onopen    = () => { console.log('WS connected'); wsAlive = true; };
     ws.onmessage = e => {
       wsAlive = true;
-      appendLog(e.data);
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.log) appendLog(msg.log);
+        if (msg.narrative) showNarrative(msg.tick, msg.narrative);
+      } catch {
+        appendLog(e.data);
+      }
       refresh().then(() => {
         if (selectedAgent) fetchAgentLog(selectedAgent.id);
       }).catch(console.warn);
