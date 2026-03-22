@@ -472,10 +472,8 @@
     </div>
 
     <div style="display:flex;flex-direction:column;flex:1;min-height:120px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-shrink:0">
-        <span class="section-title" id="log-title" style="margin-bottom:0;flex:1">Activity Log</span>
-        <input type="number" id="log-tick-filter" placeholder="tick…" min="1"
-               style="width:62px;margin-bottom:0;padding:2px 5px;font-size:11px" />
+      <div style="margin-bottom:6px;flex-shrink:0">
+        <span class="section-title" id="log-title">Activity Log</span>
       </div>
       <div id="log"></div>
     </div>
@@ -500,7 +498,6 @@
 
   let generalLogEntries = [];  // {text, tick} — in-memory general log
   let agentLogEntries   = [];  // fetched from API for selected agent
-  let logTickFilter     = null;
 
   // ── Per-agent color ────────────────────────────────────────────
   // Deterministic hue from agent UUID so color survives page reloads
@@ -1107,9 +1104,7 @@
   function renderLog() {
     const log = document.getElementById('log');
     const entries = selectedAgent ? agentLogEntries : generalLogEntries;
-    const filtered = logTickFilter
-      ? entries.filter(e => e.tick == null || e.tick >= logTickFilter)
-      : entries;
+    const filtered = entries;
     log.innerHTML = '';
     if (!filtered.length) {
       log.innerHTML = '<div class="empty">No entries</div>';
@@ -1262,14 +1257,7 @@
     renderAgentList();
   });
 
-  // ── Log tick filter ───────────────────────────────────────────
-  document.getElementById('log-tick-filter').addEventListener('input', e => {
-    const v = parseInt(e.target.value);
-    logTickFilter = isNaN(v) || v < 1 ? null : v;
-    renderLog();
-  });
-
-  // ── Init ──────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────
   (async () => {
     syncCanvasSize();        // size canvas before first draw
     updateZoomDisplay();
