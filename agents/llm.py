@@ -26,22 +26,6 @@ AGENT_RESPONSE_SCHEMA = json.dumps({
                 "goal": {"type": "string"},
             },
         },
-        "relationship_update": {
-            "type": ["object", "null"],
-            "description": (
-                "Optional: explicitly form or end a dynamic relationship. "
-                "Family/mate bonds are immutable and will be ignored here."
-            ),
-            "properties": {
-                "action": {"type": "string", "enum": ["form", "end"]},
-                "target_id": {"type": "string"},
-                "type": {
-                    "type": "string",
-                    "enum": ["friend", "enemy", "ally", "rival", "mentor", "leader", "business_partner"],
-                },
-            },
-            "required": ["action", "target_id", "type"],
-        },
     },
     "required": ["action", "parameters", "internal_state"],
 })
@@ -78,8 +62,6 @@ def _available_directions(x: int, y: int) -> list[str]:
 def _build_user_prompt(ctx: AgentContext) -> str:
     def _nearby_line(a) -> str:
         parts = [f"  - {a.name} (id: {a.id}, distance: {a.distance:.1f}"]
-        if a.relationship:
-            parts.append(f", {a.relationship.label}")
         if a.last_message:
             parts.append(f', last said: "{a.last_message}"')
         parts.append(")")
@@ -117,10 +99,6 @@ Decide your next action. Valid actions:
   interact    -> parameters: {{"target_id": "<id>", "type": "trade|help|fight"}}
   gather      -> parameters: {{"resource": "food|water|tools"}}
   idle        -> parameters: {{}}
-
-You may also optionally include a relationship_update to form or end a relationship:
-  relationship_update: {{"action": "form"|"end", "target_id": "<id>", "type": "friend|enemy|ally|rival|mentor|leader|business_partner"}}
-  Note: family and mate bonds are permanent and cannot be changed this way.
 """
 
 
