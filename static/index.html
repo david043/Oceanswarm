@@ -710,7 +710,7 @@
       // Action emoji — always visible, top-right of dot
       const emoji = actionEmoji(a.last_action, a.last_action_params);
       if (emoji && a.is_alive) {
-        const emojiSize = Math.min(Math.max(5 / view.scale, 2.5), 6);
+        const emojiSize = Math.min(Math.max(10 / view.scale, 4), 12);
         ctx.font = `${emojiSize}px serif`;
         ctx.textAlign = 'left';
         ctx.fillText(emoji, px + r + 0.5, py - r + 1);
