@@ -654,6 +654,16 @@
         ctx.lineWidth   = Math.max(0.5, 1.5 / view.scale);
         ctx.stroke();
       }
+
+      // Name label at high zoom
+      if (view.scale >= 3) {
+        const fontSize = Math.round(4 / view.scale * 10) / 10;  // ~4px at scale=10, bigger at scale=3
+        const clampedSize = Math.min(Math.max(fontSize, 1.5), 3.5);
+        ctx.font = `${clampedSize}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = a.is_alive ? color : '#6b7280';
+        ctx.textAlign = 'center';
+        ctx.fillText(a.name, px, py - r - 1.5);
+      }
     }
 
     ctx.restore();
